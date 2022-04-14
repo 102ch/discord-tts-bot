@@ -89,7 +89,7 @@ async def on_message(message):
                 text = await replaceUserName(text)
             if url.match(text):
                 return
-            jtalk(text)
+            jtalk(text + 'にゃ〜')
             audio_source = discord.FFmpegPCMAudio('open_jtalk.wav')
             voice.play(audio_source)
 
