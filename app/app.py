@@ -58,6 +58,7 @@ async def replaceUserName(text):
 async def on_message(message):
     # テキストチャンネルにメッセージが送信されたときの処理
     global voice, volume, read_mode
+    volume = 0.5
 
     if voice is True and volume is None:
             source = discord.PCMVolumeTransformer(voice.source)
