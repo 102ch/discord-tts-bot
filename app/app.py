@@ -77,10 +77,10 @@ async def on_message(message):
             if voice.is_connected():
                 await message.channel.send('ボイスチャンネルに接続中です')
         elif text == '!volume_up':
-            volume += 0.1
+            volume = volume + 0.1
             await message.channel.send('音量を上げました')
         elif text == '!volume_down':
-            volume -= 0.1
+            volume = volume - 0.1
             await message.channel.send('音量を下げました')
         elif text == '!bye':
             await client.close()
