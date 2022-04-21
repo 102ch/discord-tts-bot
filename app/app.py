@@ -12,10 +12,9 @@ from collections import defaultdict, deque
 
 queue_dict = defaultdict(deque)
 
-
-def enqueue(voice_client, guild, source, filename):
+def enqueue(voice_client, guild, source,filename):
     queue = queue_dict[guild.id]
-    queue.append([source, filename])
+    queue.append([source,filename])
     if not voice_client.is_playing():
         play(voice_client, queue)
 
@@ -31,6 +30,9 @@ def play(voice_client, queue):
 def current_milli_time():
     return round(time.time() * 1000)
 
+async def addDict(arg1,arg2):
+    with open('dict.txt', mode='a') as f:
+        f.write(arg1 + ',' + arg2+'\n')
 
 async def addDict(arg1, arg2):
     with open('dict.txt', mode='a') as f:
@@ -43,6 +45,36 @@ class CommonModule:
             json_data = json.load(f)
         return json_data
 
+def replaceDict(text):
+    f = open('dict.txt', 'r')
+    lines = f.readlines()
+    print(lines)
+
+    for line in lines:
+        pattern = line.strip().split(',')
+        if pattern[0] in text and len(pattern) >= 2:
+            text = text.replace(pattern[0], pattern[1])
+    f.close()
+    return text
+
+def showDict():
+    f = open('dict.txt', 'r')
+    lines = f.readlines()
+    output = "現在登録されている辞書一覧\n"
+    for index, line in enumerate(lines):
+        pattern = line.strip().split(',')
+        output += "{0}: {1} -> {2}\n".format(index+1,pattern[0],pattern[1])
+    f.close()
+    return output
+
+async def removeDict(num):
+    try:
+        cmd = ["sed", "-i.bak","-e", ("{0}d").format(num),"dict.txt"]
+        subprocess.call(cmd)
+    except Exception as e:
+        print(e)
+        return 0
+    return 1
 
 def replaceDict(text):
     f = open('dict.txt', 'r')
@@ -165,8 +197,8 @@ async def on_message(message):
                 return
             a = args[1]
             b = args[2]
-            await addDict(a, b)
-            await message.channel.send(("{0}を{1}と読むように辞書に登録しました！").format(a, b))
+            await addDict(a,b)
+            await message.channel.send(("{0}を{1}と読むように辞書に登録しました！").format(a,b))
         elif re.match('^!remove', text):
             args = message.content.split(" ")
             if len(args) < 2:
@@ -187,7 +219,7 @@ async def on_message(message):
                 text = replaceDict(text)
                 filename = await jtalk(text)
                 enqueue(message.guild.voice_client, message.guild,
-                        discord.FFmpegPCMAudio(filename), filename)
+                        discord.FFmpegPCMAudio(filename),filename)
                 timer = Timer(3, os.remove, (filename, ))
                 timer.start()
                 # os.remove(filename)
