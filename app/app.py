@@ -9,6 +9,7 @@ from threading import Timer
 from pymongo import MongoClient
 from datetime import datetime
 from collections import defaultdict, deque
+import random
 
 queue_dict = defaultdict(deque)
 
@@ -197,15 +198,25 @@ async def on_message(message):
                 return
             a = args[1]
             b = args[2]
+            if re.match('[k1h]',a):
+                await message.channel.send("k1hに対するいたずらは許されませんよ♡")
+                return
+            if len(a) > 10 or len(b) > 10:
+                await message.channel.send("荒らしは許されませんよ♡")
+                return
             await addDict(a,b)
             await message.channel.send(("{0}を{1}と読むように辞書に登録しました！").format(a,b))
         elif re.match('^!remove', text):
             args = message.content.split(" ")
-            if len(args) < 2:
-                await message.channel.send("Usage: !remove 3")
+            if len(args) < 3:
+                await message.channel.send("Usage: !remove 3 5")
                 return
             num = int(args[1])
-            print(await removeDict(num))
+            rand = int(args[2])
+            if(rand!=random.randint(1,6)):
+                await message.channel.send("残念はずれ！")
+                return
+
             if await removeDict(num):
                 await message.channel.send("削除しました")
             else:
@@ -213,11 +224,23 @@ async def on_message(message):
         else:
             print(message.guild.voice_client is True)
             if message.guild.voice_client:
+                print(message.author)
+                if len(text) > 100:
+                    await message.channel.send("文字数が長すぎるよ")
+                    return
                 if mention.search(text):
                     text = await replaceUserName(text)
+                text = re.sub('#.*','',str(message.author)) + text
                 text = re.sub('http.*', '', text)
                 text = replaceDict(text)
+                if len(text) > 100:
+                    await message.channel.send("文字数が長すぎるよ")
+                    return
                 filename = await jtalk(text)
+                print(os.path.getsize(filename))
+                if os.path.getsize(filename) > 1000000:
+                    await message.channel.send("再生時間が長すぎるよ")
+                    return
                 enqueue(message.guild.voice_client, message.guild,
                         discord.FFmpegPCMAudio(filename),filename)
                 timer = Timer(3, os.remove, (filename, ))
