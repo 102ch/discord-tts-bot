@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import json
 import discord
 import os
@@ -12,6 +13,8 @@ from collections import defaultdict, deque
 import random
 
 queue_dict = defaultdict(deque)
+
+
 
 def enqueue(voice_client, guild, source,filename):
     queue = queue_dict[guild.id]
@@ -130,6 +133,7 @@ client = discord.Client()
 client_id = os.environ['DISCORD_CLIENT_ID']
 voice = None
 volume = None
+currentChannel = None
 
 url = re.compile('^http')
 mention = re.compile('<@[^>]*>*')
@@ -142,6 +146,7 @@ mention = re.compile('<@[^>]*>*')
 async def on_ready():
     # 起動時の処理
     print('Bot is wake up.')
+
 
 
 async def replaceUserName(text):
@@ -158,12 +163,12 @@ async def replaceUserName(text):
         text = text.replace(word, '@'+userName)
     return text
 
-
 @client.event
 async def on_message(message):
     # テキストチャンネルにメッセージが送信されたときの処理
     global voice, volume, read_mode
     volume = 0.5
+    global currentChannel
 
     if voice is True and volume is None:
         source = discord.PCMVolumeTransformer(voice.source)
@@ -171,12 +176,15 @@ async def on_message(message):
 
     if client.user != message.author:
         text = message.content
+        print( message.channel,currentChannel)
         if text == '!join':
             channel = message.author.voice.channel
+            currentChannel = message.channel
             voice = await channel.connect()
             await message.channel.send('ボイスチャンネルにログインしました')
         elif text == '!dc':
             await voice.disconnect()
+            currentChannel = None
             await message.channel.send('ボイスチャンネルからログアウトしました')
         elif text == '!status':
             if voice.is_connected():
@@ -221,7 +229,7 @@ async def on_message(message):
                 await message.channel.send("削除しました")
             else:
                 await message.channel.send("エラーが発生しました")
-        else:
+        elif message.channel == currentChannel:
             print(message.guild.voice_client is True)
             if message.guild.voice_client:
                 print(message.author)
@@ -246,5 +254,24 @@ async def on_message(message):
                 timer = Timer(3, os.remove, (filename, ))
                 timer.start()
                 # os.remove(filename)
+
+@client.event
+async def on_voice_state_update(
+        member: discord.Member,
+        before: discord.VoiceState,
+        after: discord.VoiceState):
+
+        if not before.channel and after.channel:
+            filename = await jtalk(member.display_name + "さんこんにちは！")
+            enqueue(member.guild.voice_client, member.guild,
+                    discord.FFmpegPCMAudio(filename),filename)
+            timer = Timer(3, os.remove, (filename, ))
+            timer.start()
+        if before.channel and not after.channel:
+            filename = await jtalk(member.display_name + "さんが退出してしまいました、退出してしまいました。磯のせいです。あーあ")
+            enqueue(member.guild.voice_client, member.guild,
+                    discord.FFmpegPCMAudio(filename),filename)
+            timer = Timer(3, os.remove, (filename, ))
+            timer.start()
 
 client.run(client_id)
