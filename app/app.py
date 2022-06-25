@@ -7,7 +7,6 @@ import subprocess
 from pydub import AudioSegment
 import time
 from threading import Timer
-from pymongo import MongoClient
 from datetime import datetime
 from collections import defaultdict, deque
 import random
