@@ -3,4 +3,4 @@ db/*
 configdb/*
 dict.*
 *.wav
-app/dict.txt
+.DS_Store
