@@ -237,7 +237,7 @@ async def on_message(message):
                     return
                 if mention.search(text):
                     text = await replaceUserName(text)
-                text = re.sub('#.*','',str(message.author)) + text
+                text = re.sub('#.*','',str(message.author.display_name)) + text
                 text = re.sub('http.*', '', text)
                 text = replaceDict(text)
                 if len(text) > 100:
@@ -245,7 +245,7 @@ async def on_message(message):
                     return
                 filename = await jtalk(text)
                 print(os.path.getsize(filename))
-                if os.path.getsize(filename) > 1000000:
+                if os.path.getsize(filename) > 10000000:
                     await message.channel.send("再生時間が長すぎるよ")
                     return
                 enqueue(message.guild.voice_client, message.guild,
@@ -261,13 +261,13 @@ async def on_voice_state_update(
         after: discord.VoiceState):
 
         if not before.channel and after.channel:
-            filename = await jtalk(member.display_name + "さんこんにちは！")
+            filename = await jtalk(replaceDict(member.display_name + "さんこんにちは！"))
             enqueue(member.guild.voice_client, member.guild,
                     discord.FFmpegPCMAudio(filename),filename)
             timer = Timer(3, os.remove, (filename, ))
             timer.start()
         if before.channel and not after.channel:
-            filename = await jtalk(member.display_name + "さんが退出してしまいました、退出してしまいました。磯のせいです。あーあ")
+            filename = await jtalk(replaceDict(member.display_name + "さんが退出しました"))
             enqueue(member.guild.voice_client, member.guild,
                     discord.FFmpegPCMAudio(filename),filename)
             timer = Timer(3, os.remove, (filename, ))
