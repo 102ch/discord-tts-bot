@@ -205,9 +205,6 @@ async def on_message(message):
                 return
             a = args[1]
             b = args[2]
-            if re.match('[k1h]',a):
-                await message.channel.send("k1hに対するいたずらは許されませんよ♡")
-                return
             if len(a) > 10 or len(b) > 10:
                 await message.channel.send("荒らしは許されませんよ♡")
                 return
@@ -215,20 +212,16 @@ async def on_message(message):
             await message.channel.send(("{0}を{1}と読むように辞書に登録しました！").format(a,b))
         elif re.match('^!remove', text):
             args = message.content.split(" ")
-            if len(args) < 3:
-                await message.channel.send("Usage: !remove 3 5")
+            if len(args) < 2:
+                await message.channel.send("Usage: !remove 3")
                 return
             num = int(args[1])
-            rand = int(args[2])
-            if(rand!=random.randint(1,6)):
-                await message.channel.send("残念はずれ！")
-                return
 
             if await removeDict(num):
                 await message.channel.send("削除しました")
             else:
                 await message.channel.send("エラーが発生しました")
-        elif message.channel == currentChannel:
+        elif message.channel == currentChannel and not message.author.bot:
             print(message.guild.voice_client is True)
             if message.guild.voice_client:
                 print(message.author)
