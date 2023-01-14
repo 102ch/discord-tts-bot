@@ -28,6 +28,6 @@ jobs:
           file: ./app/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/csenet/discord-tts-python:latest
+          tags: ghcr.io/csenet/discord-tts-bot:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

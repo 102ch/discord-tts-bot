@@ -53,6 +53,8 @@ async def removeDict(num):
     return 1
 
 def replaceDict(text):
+    if(not os.path.isfile('dict.txt')):
+        open('dict.txt', 'w+').close()
     f = open('dict.txt', 'r+')
     lines = f.readlines()
     print(lines)
