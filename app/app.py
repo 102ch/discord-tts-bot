@@ -16,6 +16,8 @@ queue_dict = defaultdict(deque)
 def enqueue(voice_client, guild, source,filename):
     queue = queue_dict[guild.id]
     queue.append([source,filename])
+    if not voice_client:
+        return
     if not voice_client.is_playing():
         play(voice_client, queue)
 
@@ -187,6 +189,8 @@ async def on_message(message):
                 print(os.path.getsize(filename))
                 if os.path.getsize(filename) > 10000000:
                     await message.channel.send("再生時間が長すぎるよ")
+                    return
+                if not message.guild.voice_client:
                     return
                 enqueue(message.guild.voice_client, message.guild,
                         discord.FFmpegPCMAudio(filename),filename)

@@ -21,6 +21,7 @@ ENV TERM xterm
 
 RUN mkdir -p /root/src
 COPY requirements.txt /root/src
+COPY . /root/src
 WORKDIR /root/src
 
 RUN pip install --upgrade pip
