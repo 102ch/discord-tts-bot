@@ -13,14 +13,11 @@ import random
 
 queue_dict = defaultdict(deque)
 
-
-
 def enqueue(voice_client, guild, source,filename):
     queue = queue_dict[guild.id]
     queue.append([source,filename])
     if not voice_client.is_playing():
         play(voice_client, queue)
-
 
 def play(voice_client, queue):
     if not queue or voice_client.is_playing():
@@ -29,39 +26,15 @@ def play(voice_client, queue):
     # os.remove(source[1])
     voice_client.play(source[0], after=lambda e: play(voice_client, queue))
 
-
 def current_milli_time():
     return round(time.time() * 1000)
 
 async def addDict(arg1,arg2):
-    with open('dict.txt', mode='a') as f:
+    with open('dict.txt', mode='a+') as f:
         f.write(arg1 + ',' + arg2+'\n')
-
-async def addDict(arg1, arg2):
-    with open('dict.txt', mode='a') as f:
-        f.write(arg1 + ',' + arg2+'\n')
-
-
-class CommonModule:
-    def load_json(self, file):
-        with open(file, 'r', encoding='utf-8') as f:
-            json_data = json.load(f)
-        return json_data
-
-def replaceDict(text):
-    f = open('dict.txt', 'r')
-    lines = f.readlines()
-    print(lines)
-
-    for line in lines:
-        pattern = line.strip().split(',')
-        if pattern[0] in text and len(pattern) >= 2:
-            text = text.replace(pattern[0], pattern[1])
-    f.close()
-    return text
 
 def showDict():
-    f = open('dict.txt', 'r')
+    f = open('dict.txt', 'a+')
     lines = f.readlines()
     output = "現在登録されている辞書一覧\n"
     for index, line in enumerate(lines):
@@ -80,38 +53,15 @@ async def removeDict(num):
     return 1
 
 def replaceDict(text):
-    f = open('dict.txt', 'r')
+    f = open('dict.txt', 'r+')
     lines = f.readlines()
     print(lines)
-
     for line in lines:
         pattern = line.strip().split(',')
         if pattern[0] in text and len(pattern) >= 2:
             text = text.replace(pattern[0], pattern[1])
     f.close()
     return text
-
-
-def showDict():
-    f = open('dict.txt', 'r')
-    lines = f.readlines()
-    output = "現在登録されている辞書一覧\n"
-    for index, line in enumerate(lines):
-        pattern = line.strip().split(',')
-        output += "{0}: {1} -> {2}\n".format(index+1, pattern[0], pattern[1])
-    f.close()
-    return output
-
-
-async def removeDict(num):
-    try:
-        cmd = ["sed", "-i.bak", "-e", ("{0}d").format(num), "dict.txt"]
-        subprocess.call(cmd)
-    except Exception as e:
-        print(e)
-        return 0
-    return 1
-
 
 async def jtalk(t):
     open_jtalk = ['open_jtalk']
@@ -120,15 +70,15 @@ async def jtalk(t):
     pitch = ['-fm', '-5']
     speed = ['-r', '1.0']
     file = str(current_milli_time())
-    outwav = ['-ow', file + '.wav']
+    outwav = ['-ow', 'output.wav']
     cmd = open_jtalk+mech+htsvoice+pitch+speed+outwav
     c = subprocess.Popen(cmd, stdin=subprocess.PIPE)
     c.stdin.write(t.encode())
     c.stdin.close()
     c.wait()
-    return file + '.wav'
+    return 'output.wav'
 
-client = discord.Client()
+client = discord.Client(intents=discord.Intents.all())
 client_id = os.environ['DISCORD_CLIENT_ID']
 voice = None
 volume = None
@@ -137,16 +87,10 @@ currentChannel = None
 url = re.compile('^http')
 mention = re.compile('<@[^>]*>*')
 
-# GUILD_ID=833346660201398282
-# guild = client.get_guild(GUILD_ID)
-
-
 @client.event
 async def on_ready():
     # 起動時の処理
     print('Bot is wake up.')
-
-
 
 async def replaceUserName(text):
     for word in text.split():
@@ -177,6 +121,7 @@ async def on_message(message):
         text = message.content
         print( message.channel,currentChannel)
         if text == '!join':
+            print("join")
             channel = message.author.voice.channel
             currentChannel = message.channel
             voice = await channel.connect()
@@ -243,8 +188,8 @@ async def on_message(message):
                     return
                 enqueue(message.guild.voice_client, message.guild,
                         discord.FFmpegPCMAudio(filename),filename)
-                timer = Timer(3, os.remove, (filename, ))
-                timer.start()
+                # timer = Timer(3, os.remove, (filename, ))
+                # timer.start()
                 # os.remove(filename)
 
 @client.event
