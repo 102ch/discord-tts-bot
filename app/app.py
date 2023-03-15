@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import json
 import discord
+from discord.ext import commands
 import os
 import re
 import subprocess
@@ -89,11 +90,18 @@ async def jtalk(t):
     c.wait()
     return 'output.wav'
 
-# クライアント、コマンドツリーを作成
-client = discord.Client(intents=discord.Intents.all())
-tree = discord.app_commands.CommandTree(client)
 client_id = os.environ['DISCORD_CLIENT_ID']
-print(client_id)
+application_id=os.environ['DISCORD_APP_ID']
+# クライアント、コマンドツリーを作成
+bot = commands.Bot(
+    command_prefix="/",
+    intents=discord.Intents.all(),
+    application_id=application_id
+)
+tree =bot.tree
+#client = discord.Client(intents=discord.Intents.all())
+#tree = discord.app_commands.CommandTree(client)
+
 voice = None
 volume = None
 currentChannel = None
@@ -101,11 +109,11 @@ currentChannel = None
 url = re.compile('^http')
 mention = re.compile('<@[^>]*>*')
 
-@client.event
+@bot.event
 async def on_ready():
     # 起動時の処理
     await tree.sync()
-    print('Bot is wake up.')
+    print('Bot is wake up. hi bro.')
     
 
 async def replaceUserName(text):
@@ -114,7 +122,7 @@ async def replaceUserName(text):
             continue
         userId = re.sub('[<@!> ]', '', word)
         print(userId)
-        userName = str(await client.fetch_user(userId))
+        userName = str(await bot.fetch_user(userId))
         # nickName = str(await guild.get_member_named(userName))
         # print(nickName)
         # userName = '砂糖#'
@@ -175,7 +183,7 @@ async def vol(interaction:discord.Interaction,control:Volume_control):
 @tree.command(name="bye",description="クライアント終了、仕様上動くかわかんない")
 async def bye(interaction:discord.Interaction):
     await interaction.response.send_message("クライアントを終了します")
-    await client.close()
+    await bot.close()
 
 @tree.command(name="get",description="辞書の内容を取得するよ")
 async def get(interaction:discord.Interaction):
@@ -198,7 +206,7 @@ async def remove(interaction:discord.Interaction,num:int):
     else:
         await interaction.response.send_message("エラーが発生しました")
 
-@client.event
+@bot.event
 async def on_message(message):
     # テキストチャンネルにメッセージが送信されたときの処理
     global voice, volume, read_mode
@@ -209,7 +217,7 @@ async def on_message(message):
         source = discord.PCMVolumeTransformer(voice.source)
         volume = source.volume
 
-    if client.user != message.author:
+    if bot.user != message.author:
         text = message.content
         print( message.channel,currentChannel)
         if message.channel == currentChannel and not message.author.bot:
@@ -239,8 +247,9 @@ async def on_message(message):
                 # timer = Timer(3, os.remove, (filename, ))
                 # timer.start()
                 # os.remove(filename)
+    await bot.process_commands(message)
 
-@client.event
+@bot.event
 async def on_voice_state_update(
         member: discord.Member,
         before: discord.VoiceState,
@@ -262,8 +271,8 @@ async def on_voice_state_update(
 
 async def main():
     # start the client
-    async with client:
+    async with bot:
 
-        await client.run(client_id)
+        await bot.run(client_id)
 
 asyncio.run(main())
