@@ -10,6 +10,13 @@ from threading import Timer
 from datetime import datetime
 from collections import defaultdict, deque
 import random
+import asyncio
+import typing
+import Enum
+
+class Volume_control(Enum.enum):
+    up=1
+    down=-1
 
 queue_dict = defaultdict(deque)
 
@@ -82,8 +89,11 @@ async def jtalk(t):
     c.wait()
     return 'output.wav'
 
+# クライアント、コマンドツリーを作成
 client = discord.Client(intents=discord.Intents.all())
+tree = discord.app_commands.CommandTree(client)
 client_id = os.environ['DISCORD_CLIENT_ID']
+print(client_id)
 voice = None
 volume = None
 currentChannel = None
@@ -94,7 +104,9 @@ mention = re.compile('<@[^>]*>*')
 @client.event
 async def on_ready():
     # 起動時の処理
+    await tree.sync()
     print('Bot is wake up.')
+    
 
 async def replaceUserName(text):
     for word in text.split():
@@ -110,13 +122,89 @@ async def replaceUserName(text):
         text = text.replace(word, '@'+userName)
     return text
 
+"""おてほん
+@tree.command(name="コマンド名",description="説明")
+async def f(interaction:discord.Interaction):
+    # 中身 https://discordpy.readthedocs.io/ja/latest/interactions/api.html#interaction
+    # を見るとinteractionから取得できる情報が分かるよ
+    await interaction.response.send_message("返信はコマンド入力に対して一回きりだよ")
+
+#コピペ用
+@tree.command(name="",description="")
+async def f(interaction:discord.Interaction):
+    await interaction.response.send_message()
+"""
+
+@tree.command(name="join",description="ボイスチャンネルに参加するよ")
+async def join(interaction:discord.Interaction):
+    global currentChannel,voice
+    message = interaction.message
+    print("join") 
+    channel = message.author.voice.channel
+    currentChannel = message.channel
+    voice = await channel.connect()
+    await interaction.response.send_message('ボイスチャンネルにログインしました')
+
+@tree.command(name="dc",description="ボイスチャンネルから退出するよ")
+async def dc(interaction:discord.Interaction):
+    global currentChannel,voice
+    await voice.disconnect()
+    currentChannel = None
+    await interaction.response.send_message('ボイスチャンネルからログアウトしました')
+
+
+@tree.command(name="status",description="現在のステータスを確認するよ")
+async def f(interaction:discord.Interaction):
+    if voice.is_connected():
+        status="ボイスチャンネルに接続中だよ"
+    else:
+        status="ボイスチャンネルに接続してないよ"
+    await interaction.response.send_message(status)
+
+@tree.command(name="volume",description="音量を調整するよ")
+async def vol(interaction:discord.Interaction,control:Volume_control):
+    global volume
+    volume+=control*0.1
+    if control==Volume_control.up:
+        await interaction.response.send_message(f"音量を上げました\n現在の音量:{volume}")
+    elif control==Volume_control.down:
+        await interaction.response.send_message(f"音量を下げました\n現在の音量:{volume}")
+    else:
+        await interaction.response.send_message(f"up もしくは down を入力してください\n現在の音量:{volume}")
+
+@tree.command(name="bye",description="クライアント終了、仕様上動くかわかんない")
+async def bye(interaction:discord.Interaction):
+    await interaction.response.send_message("クライアントを終了します")
+    await client.close()
+
+@tree.command(name="get",description="辞書の内容を取得するよ")
+async def get(interaction:discord.Interaction):
+    await interaction.response.send_message(showDict())
+
+
+@tree.command(name="add",description="辞書に新しい単語を登録するよ")
+@discord.app_commands.describe(arg1="置換前の単語を入れてね",arg2="置換後の単語を入れてね")
+async def add(interaction:discord.Interaction,arg1:str,arg2:str):
+    if len(arg1) > 10 or len(arg2) > 10:
+        return await interaction.response.send_message("荒らしは許されませんよ♡\n置換する単語は10文字儼にしてね")
+    await addDict(arg1,arg2)
+    await interaction.response.send_message(f"{arg1}を{arg2}と読むように辞書に登録しました！")
+
+@tree.command(name="remove",description="辞書の単語を削除するよ")
+@discord.app_commands.describe(num="削除する単語の番号を入れてね")
+async def remove(interaction:discord.Interaction,num:int):
+    if await removeDict(num):
+        await interaction.response.send_message("削除しました")
+    else:
+        await interaction.response.send_message("エラーが発生しました")
+
 @client.event
 async def on_message(message):
     # テキストチャンネルにメッセージが送信されたときの処理
     global voice, volume, read_mode
     volume = 0.5
+    
     global currentChannel
-
     if voice is True and volume is None:
         source = discord.PCMVolumeTransformer(voice.source)
         volume = source.volume
@@ -124,53 +212,7 @@ async def on_message(message):
     if client.user != message.author:
         text = message.content
         print( message.channel,currentChannel)
-        if text == '!join':
-            print("join")
-            channel = message.author.voice.channel
-            currentChannel = message.channel
-            voice = await channel.connect()
-            await message.channel.send('ボイスチャンネルにログインしました')
-        elif text == '!dc':
-            await voice.disconnect()
-            currentChannel = None
-            await message.channel.send('ボイスチャンネルからログアウトしました')
-        elif text == '!status':
-            if voice.is_connected():
-                await message.channel.send('ボイスチャンネルに接続中です')
-        elif text == '!volume_up':
-            volume = volume + 0.1
-            await message.channel.send('音量を上げました')
-        elif text == '!volume_down':
-            volume = volume - 0.1
-            await message.channel.send('音量を下げました')
-        elif text == '!bye':
-            await client.close()
-        elif text == '!get':
-            await message.channel.send(showDict())
-        elif re.match('^!add', text):
-            args = message.content.split(" ")
-            if len(args) < 3:
-                await message.channel.send("Usage: !add A B")
-                return
-            a = args[1]
-            b = args[2]
-            if len(a) > 10 or len(b) > 10:
-                await message.channel.send("荒らしは許されませんよ♡")
-                return
-            await addDict(a,b)
-            await message.channel.send(("{0}を{1}と読むように辞書に登録しました！").format(a,b))
-        elif re.match('^!remove', text):
-            args = message.content.split(" ")
-            if len(args) < 2:
-                await message.channel.send("Usage: !remove 3")
-                return
-            num = int(args[1])
-
-            if await removeDict(num):
-                await message.channel.send("削除しました")
-            else:
-                await message.channel.send("エラーが発生しました")
-        elif message.channel == currentChannel and not message.author.bot:
+        if message.channel == currentChannel and not message.author.bot:
             print(message.guild.voice_client is True)
             if message.guild.voice_client:
                 print(message.author)
@@ -217,4 +259,11 @@ async def on_voice_state_update(
             timer = Timer(3, os.remove, (filename, ))
             timer.start()
 
-client.run(client_id)
+
+async def main():
+    # start the client
+    async with client:
+
+        await client.run(client_id)
+
+asyncio.run(main())
