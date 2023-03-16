@@ -6,7 +6,8 @@ OpenJTalkを用いてDiscordのチャットに投稿されたメッセージをV
 
 環境変数のサンプルファイルを用意しているので、`cp .env.sample .env`を実行してください。
 
-次に、`DISCORD_TOKEN`にDiscordのBotのトークンを設定してください。
+次に、`DISCORD_TOKEN`にDiscordのBotのトークンを
+`DISCORD_APP_ID`にDiscordのBotのAPPLICATION IDを設定してください。
 
 ### Dockerを使った開発
 
