@@ -13,11 +13,8 @@ from collections import defaultdict, deque
 import random
 import asyncio
 import typing
-import Enum
 
-class Volume_control(Enum.enum):
-    up=1
-    down=-1
+
 
 queue_dict = defaultdict(deque)
 
@@ -39,13 +36,17 @@ def play(voice_client, queue):
 def current_milli_time():
     return round(time.time() * 1000)
 
-async def addDict(arg1,arg2):
+def addDict(arg1,arg2):
     with open('dict.txt', mode='a+') as f:
         f.write(arg1 + ',' + arg2+'\n')
 
+    with open("dict.txt",mode="r")as f:
+        print(f.read())
+
 def showDict():
-    f = open('dict.txt', 'a+')
+    f = open('dict.txt', 'r')
     lines = f.readlines()
+    print(lines)
     output = "現在登録されている辞書一覧\n"
     for index, line in enumerate(lines):
         pattern = line.strip().split(',')
@@ -113,6 +114,8 @@ mention = re.compile('<@[^>]*>*')
 async def on_ready():
     # 起動時の処理
     await tree.sync()
+    with open("dict.txt","w")as f:
+        pass
     print('Bot is wake up. hi bro.')
     
 
@@ -145,13 +148,12 @@ async def f(interaction:discord.Interaction):
 
 @tree.command(name="join",description="ボイスチャンネルに参加するよ")
 async def join(interaction:discord.Interaction):
+    await interaction.response.defer()
     global currentChannel,voice
-    message = interaction.message
     print("join") 
-    channel = message.author.voice.channel
-    currentChannel = message.channel
-    voice = await channel.connect()
-    await interaction.response.send_message('ボイスチャンネルにログインしました')
+    currentChannel = interaction.channel
+    voice = await currentChannel.connect()
+    await interaction.followup.send('ボイスチャンネルにログインしました')
 
 @tree.command(name="dc",description="ボイスチャンネルから退出するよ")
 async def dc(interaction:discord.Interaction):
@@ -170,12 +172,14 @@ async def f(interaction:discord.Interaction):
     await interaction.response.send_message(status)
 
 @tree.command(name="volume",description="音量を調整するよ")
-async def vol(interaction:discord.Interaction,control:Volume_control):
+async def vol(interaction:discord.Interaction,control:str):
     global volume
-    volume+=control*0.1
-    if control==Volume_control.up:
+    
+    if control=="up":
+        volume+=0.1
         await interaction.response.send_message(f"音量を上げました\n現在の音量:{volume}")
-    elif control==Volume_control.down:
+    elif control=="down":
+        volume-=0.1
         await interaction.response.send_message(f"音量を下げました\n現在の音量:{volume}")
     else:
         await interaction.response.send_message(f"up もしくは down を入力してください\n現在の音量:{volume}")
@@ -195,7 +199,7 @@ async def get(interaction:discord.Interaction):
 async def add(interaction:discord.Interaction,arg1:str,arg2:str):
     if len(arg1) > 10 or len(arg2) > 10:
         return await interaction.response.send_message("荒らしは許されませんよ♡\n置換する単語は10文字儼にしてね")
-    await addDict(arg1,arg2)
+    addDict(arg1,arg2)
     await interaction.response.send_message(f"{arg1}を{arg2}と読むように辞書に登録しました！")
 
 @tree.command(name="remove",description="辞書の単語を削除するよ")
@@ -273,6 +277,6 @@ async def main():
     # start the client
     async with bot:
 
-        await bot.run(client_id)
+        await bot.start(client_id)
 
 asyncio.run(main())
