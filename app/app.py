@@ -11,9 +11,10 @@ import asyncio
 
 
 queue_dict = defaultdict(deque)
+connecting_channels = set()
 
 
-def enqueue(voice_client, guild, source, filename):
+def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
     queue.append([source, filename])
     if not voice_client:
@@ -22,7 +23,7 @@ def enqueue(voice_client, guild, source, filename):
         play(voice_client, queue)
 
 
-def play(voice_client, queue):
+def play(voice_client: discord.VoiceClient, queue: deque):
     if not queue or voice_client.is_playing():
         return
     source = queue.popleft()
@@ -30,11 +31,11 @@ def play(voice_client, queue):
     voice_client.play(source[0], after=lambda e: play(voice_client, queue))
 
 
-def current_milli_time():
+def current_milli_time() -> int:
     return round(time.time() * 1000)
 
 
-def addDict(arg1, arg2):
+def addDict(arg1: str, arg2: str):
     with open('dict.txt', mode='a+') as f:
         f.write(arg1 + ',' + arg2 + '\n')
 
@@ -42,7 +43,7 @@ def addDict(arg1, arg2):
         print(f.read())
 
 
-def showDict():
+def showDict() -> str:
     f = open('dict.txt', 'r')
     lines = f.readlines()
     print(lines)
@@ -54,17 +55,17 @@ def showDict():
     return output
 
 
-async def removeDict(num):
+async def removeDict(num: int) -> bool:
     try:
         cmd = ["sed", "-i.bak", "-e", ("{0}d").format(num), "dict.txt"]
         subprocess.call(cmd)
     except Exception as e:
         print(e)
-        return 0
-    return 1
+        return False
+    return True
 
 
-def replaceDict(text):
+def replaceDict(text: str) -> str:
     if (not os.path.isfile('dict.txt')):
         open('dict.txt', 'w+').close()
     f = open('dict.txt', 'r+')
@@ -78,7 +79,7 @@ def replaceDict(text):
     return text
 
 
-async def jtalk(t):
+async def jtalk(t) -> str:
     open_jtalk = ['open_jtalk']
     mech = ['-x', '/var/lib/mecab/dic/open-jtalk/naist-jdic']
     htsvoice = ['-m', '/usr/share/hts-voice/mei/mei_normal.htsvoice']
@@ -92,6 +93,31 @@ async def jtalk(t):
     c.stdin.close()
     c.wait()
     return 'output.wav'
+
+
+def get_voice_client(channel_id: int) -> discord.VoiceClient | None:
+    for client in bot.voice_clients:
+        if client.channel.id == channel_id:
+            return client
+    else:
+        return None
+
+
+async def text_check(text: str, user_name: str) -> str:
+    if len(text) > 100:
+        raise Exception("文字数が長すぎるよ")
+    if mention.search(text):
+        text = await replaceUserName(text)
+    text = re.sub('#.*', '', str(user_name)) + ' ' + text
+    text = re.sub('http.*', '', text)
+    text = replaceDict(text)
+    if len(text) > 100:
+        raise Exception("文字数が長すぎるよ")
+    filename = await jtalk(text)
+    if os.path.getsize(filename) > 10000000:
+        raise Exception("再生時間が長すぎるよ")
+    return text, filename
+
 
 client_id = os.environ['DISCORD_CLIENT_ID']
 application_id = os.environ['DISCORD_APP_ID']
@@ -153,24 +179,28 @@ async def f(interaction:discord.Interaction):
 @tree.command(name="join", description="ボイスチャンネルに参加するよ")
 async def join(interaction: discord.Interaction):
     await interaction.response.defer()
-    global currentChannel, voice
-    print("join")
-    currentChannel = interaction.channel
-    await currentChannel.connect()
+    print(f"join:{interaction.channel}")
+    connecting_channels.add(interaction.channel_id)
+    await interaction.channel.connect()
     await interaction.followup.send('ボイスチャンネルにログインしました')
 
 
 @tree.command(name="dc", description="ボイスチャンネルから退出するよ")
 async def dc(interaction: discord.Interaction):
-    global currentChannel, voice
-    await voice.disconnect()
-    currentChannel = None
-    await interaction.response.send_message('ボイスチャンネルからログアウトしました')
+    await interaction.response.defer()
+    client: discord.VoiceClient | None = get_voice_client()
+
+    if client:
+        await client.disconnect()
+        await interaction.followup.send('ボイスチャンネルからログアウトしました')
+    else:
+        await interaction.followup.send('ボイスチャンネルに参加していません')
 
 
 @tree.command(name="status", description="現在のステータスを確認するよ")
 async def f(interaction: discord.Interaction):
-    if voice.is_connected():
+
+    if get_voice_client(interaction.channel_id):
         status = "ボイスチャンネルに接続中だよ"
     else:
         status = "ボイスチャンネルに接続してないよ"
@@ -221,47 +251,40 @@ async def remove(interaction: discord.Interaction, num: int):
 
 
 @bot.event
-async def on_message(message):
+async def on_message(message: discord.Message):
     # テキストチャンネルにメッセージが送信されたときの処理
-    global voice, volume, read_mode
+    global volume
+
+    # botの排除
+    if message.author.bot:
+        return await bot.process_commands(message)
     volume = 0.5
 
-    global currentChannel
+    voice = get_voice_client(message.channel.id)
+
+    if not voice:
+        return await bot.process_commands(message)
+
     if voice is True and volume is None:
         source = discord.PCMVolumeTransformer(voice.source)
         volume = source.volume
 
-    if bot.user != message.author:
-        text = message.content
-        print(message.channel, currentChannel)
-        if message.channel == currentChannel and not message.author.bot:
-            print(message.guild.voice_client is True)
-            if message.guild.voice_client:
-                print(message.author)
-                if len(text) > 100:
-                    await message.channel.send("文字数が長すぎるよ")
-                    return
-                if mention.search(text):
-                    text = await replaceUserName(text)
-                text = re.sub(
-                    '#.*', '', str(message.author.display_name)) + text
-                text = re.sub('http.*', '', text)
-                text = replaceDict(text)
-                if len(text) > 100:
-                    await message.channel.send("文字数が長すぎるよ")
-                    return
-                filename = await jtalk(text)
-                print(os.path.getsize(filename))
-                if os.path.getsize(filename) > 10000000:
-                    await message.channel.send("再生時間が長すぎるよ")
-                    return
-                if not message.guild.voice_client:
-                    return
-                enqueue(message.guild.voice_client, message.guild,
-                        discord.FFmpegPCMAudio(filename), filename)
-                # timer = Timer(3, os.remove, (filename, ))
-                # timer.start()
-                # os.remove(filename)
+    text = message.content
+
+    try:
+        text, filename = await text_check(text, message.author.name)
+    except Exception as e:
+        return await message.channel.send(e)
+
+    if not message.guild.voice_client:
+        return
+
+    enqueue(message.guild.voice_client, message.guild,
+            discord.FFmpegPCMAudio(filename), filename)
+    # timer = Timer(3, os.remove, (filename, ))
+    # timer.start()
+    # os.remove(filename)
+    # コマンド側へメッセージ内容を渡す
     await bot.process_commands(message)
 
 
