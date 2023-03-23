@@ -9,6 +9,8 @@ from threading import Timer
 from collections import defaultdict, deque
 import asyncio
 
+# from dotenv import load_dotenv
+# load_dotenv()
 
 queue_dict = defaultdict(deque)
 connecting_channels = set()
@@ -181,14 +183,19 @@ async def join(interaction: discord.Interaction):
     await interaction.response.defer()
     print(f"join:{interaction.channel}")
     connecting_channels.add(interaction.channel_id)
-    await interaction.channel.connect()
-    await interaction.followup.send('ボイスチャンネルにログインしました')
+    await interaction.followup.send('ボイスチャンネルに参加します')
+    try:
+        await interaction.channel.connect()
+    except Exception as e:
+        connecting_channels.remove(interaction.channel_id)
+        await interaction.followup.send(f"参加中に異常が発生しました\n```{e}```")
 
 
 @tree.command(name="dc", description="ボイスチャンネルから退出するよ")
 async def dc(interaction: discord.Interaction):
     await interaction.response.defer()
-    client: discord.VoiceClient | None = get_voice_client()
+    client: discord.VoiceClient | None = get_voice_client(
+        interaction.channel_id)
 
     if client:
         await client.disconnect()
