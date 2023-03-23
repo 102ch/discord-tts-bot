@@ -284,7 +284,7 @@ async def on_message(message: discord.Message):
         return await message.channel.send(e)
 
     if not message.guild.voice_client:
-        return
+        return await bot.process_commands(message)
 
     enqueue(message.guild.voice_client, message.guild,
             discord.FFmpegPCMAudio(filename), filename)
