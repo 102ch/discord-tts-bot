@@ -81,6 +81,24 @@ def replaceDict(text: str) -> str:
     return text
 
 
+def replaceStamp(text):
+    text = re.sub('<:([^:]*):.*>', '\\1', "<:ohayou:1002593941788561449>")
+    return text
+
+
+async def replaceUserName(text: str) -> str:
+    for word in text.split():
+        if not mention.match(word):
+            continue
+        print(word)
+        userId = re.sub('<@([^>]*)>', '\\1', word)
+        print(userId)
+        userName = str(await bot.fetch_user(userId))
+        userName = re.sub('#.*', '', userName)
+        text = text.replace(word, '@' + userName)
+    return text
+
+
 async def jtalk(t) -> str:
     open_jtalk = ['open_jtalk']
     mech = ['-x', '/var/lib/mecab/dic/open-jtalk/naist-jdic']
@@ -106,8 +124,11 @@ def get_voice_client(channel_id: int) -> discord.VoiceClient | None:
 
 
 async def text_check(text: str, user_name: str) -> str:
+    print(text)
     if len(text) > 100:
         raise Exception("文字数が長すぎるよ")
+    if stamp.search(text):
+        text = replaceStamp(text)
     if mention.search(text):
         text = await replaceUserName(text)
     text = re.sub('#.*', '', str(user_name)) + ' ' + text
@@ -138,7 +159,8 @@ volume = None
 currentChannel = None
 
 url = re.compile('^http')
-mention = re.compile('<@[^>]*>*')
+mention = re.compile('<@[^>]*>')
+stamp = re.compile('<:([^:]*):.*>')
 
 
 @bot.event
@@ -148,21 +170,6 @@ async def on_ready():
     with open("dict.txt", "w"):  # 起動時に空のdictを生成
         pass
     print('Bot is wake up. hi bro.')
-
-
-async def replaceUserName(text):
-    for word in text.split():
-        if not mention.match(word):
-            continue
-        userId = re.sub('[<@!> ]', '', word)
-        print(userId)
-        userName = str(await bot.fetch_user(userId))
-        # nickName = str(await guild.get_member_named(userName))
-        # print(nickName)
-        # userName = '砂糖#'
-        userName = re.sub('#.*', '', userName)
-        text = text.replace(word, '@' + userName)
-    return text
 
 """おてほん
 @tree.command(name="コマンド名",description="説明")
