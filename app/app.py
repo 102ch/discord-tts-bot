@@ -81,7 +81,7 @@ def replaceDict(text: str) -> str:
     return text
 
 
-def replaceStamp(text):
+def replaceStamp(text: str) -> str:
     text = re.sub('<:([^:]*):.*>', '\\1', text)
     return text
 
