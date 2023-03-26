@@ -82,7 +82,7 @@ def replaceDict(text: str) -> str:
 
 
 def replaceStamp(text):
-    text = re.sub('<:([^:]*):.*>', '\\1', "<:ohayou:1002593941788561449>")
+    text = re.sub('<:([^:]*):.*>', '\\1', text)
     return text
 
 
