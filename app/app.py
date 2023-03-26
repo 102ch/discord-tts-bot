@@ -198,6 +198,8 @@ async def dc(interaction: discord.Interaction):
         interaction.channel_id)
 
     if client:
+        global currentChannel
+        currentChannel = None
         await client.disconnect()
         await interaction.followup.send('ボイスチャンネルからログアウトしました')
     else:
