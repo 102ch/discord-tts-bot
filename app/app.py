@@ -301,6 +301,11 @@ async def on_voice_state_update(
         before: discord.VoiceState,
         after: discord.VoiceState):
 
+    # Chatに接続中でないなら処理しない
+    global currentChannel
+    if currentChannel is None:
+        return
+
     if not before.channel and after.channel:
         filename = await jtalk(replaceDict(member.display_name + "さんこんにちは！"))
         enqueue(member.guild.voice_client, member.guild,
