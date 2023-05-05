@@ -1,6 +1,6 @@
 # discord-tts-bot
 
-OpenJTalkを用いてDiscordのチャットに投稿されたメッセージをVoice Chatで読み上げるBotです
+OpenJTalkを用いてDiscordのチャットに投稿されたメッセージをVoice Chatで読み上げるBotです。
 
 ## 開発者へ
 
