@@ -31,3 +31,9 @@ jobs:
           tags: ghcr.io/102ch/discord-tts-bot:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Deploy to Server
+        uses: JimCronqvist/action-ssh@master
+        with:
+          hosts: 'koichi@mc.k1h.dev:5000'
+          privateKey: ${{ secrets.SSH_PRIVATEKEY }}
+          command: cd discord-tts-bot; git pull; docker pull ghcr.io/102ch/discord-tts-bot:latest; docker-compose up -d
