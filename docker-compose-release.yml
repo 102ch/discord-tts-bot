@@ -2,7 +2,7 @@ version: "3.1"
 
 services:
   app:
-    image: ghcr.io/csenet/discord-tts-bot:latest
+    image: ghcr.io/102ch/discord-tts-bot:latest
     tty: true
     restart: always
     environment:
