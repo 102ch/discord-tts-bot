@@ -16,6 +16,7 @@ queue_dict = defaultdict(deque)
 connecting_channels = set()
 
 dictID = 952075555866558484#
+dictMsg = None
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
@@ -258,7 +259,7 @@ async def get(interaction: discord.Interaction):
 async def add(interaction: discord.Interaction, arg1: str, arg2: str):
     if len(arg1) > 10 or len(arg2) > 10:
         return await interaction.response.send_message("荒らしは許されませんよ♡\n置換する単語は10文字儼にしてね")
-    addDict(arg1, arg2)
+    await addDict(arg1, arg2)
     await interaction.response.send_message(f"{arg1}を{arg2}と読むように辞書に登録しました！")
 
 
