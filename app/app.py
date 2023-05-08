@@ -63,7 +63,7 @@ async def removeDict(num: int) -> bool:
     lines = msg.splitlines()
     output = []
     for index, line in enumerate(lines):
-        if index != num+1:
+        if index != num-1:
             output.append(line)
     dictMsg = await dictMsg.edit(content = '\n'.join(output))
     return True
