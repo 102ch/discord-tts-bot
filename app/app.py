@@ -15,7 +15,7 @@ import asyncio
 queue_dict = defaultdict(deque)
 connecting_channels = set()
 
-msg = None
+dictID = 952075555866558484#
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
@@ -38,13 +38,15 @@ def current_milli_time() -> int:
     return round(time.time() * 1000)
 
 
-def addDict(arg1: str, arg2: str):
-    msg = dictMsg.connect + '\n' + arg1 + ',' + arg2
-    dictMsg.edit(msg)
+async def addDict(arg1: str, arg2: str):
+    global dictMsg
+    msg = dictMsg.content + '\n' + arg1 + ',' + arg2
+    dictMsg = await dictMsg.edit(content = msg)
     print(msg)
 
 def showDict() -> str:
-    msg = dictMsg.connect
+    global dictMsg
+    msg = dictMsg.content
     lines = msg.splitlines()
     print(lines)
     output = "現在登録されている辞書一覧\n"
@@ -55,18 +57,25 @@ def showDict() -> str:
 
 
 async def removeDict(num: int) -> bool:
+    global dictMsg
+    msg = dictMsg.content
+    lines = msg.splitlines()
+    output = []
+    for index, line in enumerate(lines):
+        if index != num+1:
+            output.append(line)
+    dictMsg = await dictMsg.edit(content = '\n'.join(output))
     return True
 
 
 def replaceDict(text: str) -> str:
-    msg = dictMsg.connect
+    global dictMsg
+    msg = dictMsg.content
     lines = msg.splitlines()
-    print(lines)
     for line in lines:
         pattern = line.strip().split(',')
         if pattern[0] in text and len(pattern) >= 2:
             text = text.replace(pattern[0], pattern[1])
-    f.close()
     return text
 
 
@@ -156,12 +165,15 @@ stamp = re.compile('<:([^:]*):.*>')
 async def on_ready():
     # 起動時の処理
     await tree.sync()
-    channel = bot.get_channel(964896588587761715)
-    async for message in channel.history(limit=1):
-        if message.author == bot.user:
-            msg = message
+
+    global dictMsg
+    channel = bot.get_channel(dictID)
+    print(channel)
+    async for message in bot.history(limit=1):
+        if message.author == client.user:
+            dictMsg = message
         else:
-            msg = await channel.send('.佐藤,吉村')
+            dictMsg = await channel.send('文字列,文字列')
     print('Bot is wake up. hi bro.')
 
 """おてほん
