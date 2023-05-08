@@ -52,18 +52,21 @@ def showDict() -> str:
     print(lines)
     output = "現在登録されている辞書一覧\n"
     for index, line in enumerate(lines):
-        pattern = line.strip().split(',')
-        output += "{0}: {1} -> {2}\n".format(index + 1, pattern[0], pattern[1])
+        if index:
+            pattern = line.strip().split(',')
+            output += "{0}: {1} -> {2}\n".format(index, pattern[0], pattern[1])
     return output
 
 
 async def removeDict(num: int) -> bool:
+    if num <= 0:
+        return True
     global dictMsg
     msg = dictMsg.content
     lines = msg.splitlines()
     output = []
     for index, line in enumerate(lines):
-        if index != num-1:
+        if index != num:
             output.append(line)
     dictMsg = await dictMsg.edit(content = '\n'.join(output))
     return True
