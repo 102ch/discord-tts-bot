@@ -34,6 +34,6 @@ jobs:
       - name: Deploy to Server
         uses: JimCronqvist/action-ssh@master
         with:
-          hosts: 'koichi@mc.k1h.dev:5000'
+          hosts: 'root@mc.k1h.dev:5000'
           privateKey: ${{ secrets.SSH_PRIVATEKEY }}
           command: cd discord-tts-bot; git pull; docker pull ghcr.io/102ch/discord-tts-bot:latest; docker-compose -f docker-compose-release.yml up -d
