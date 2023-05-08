@@ -15,6 +15,7 @@ import asyncio
 queue_dict = defaultdict(deque)
 connecting_channels = set()
 
+msg = None
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
@@ -38,40 +39,28 @@ def current_milli_time() -> int:
 
 
 def addDict(arg1: str, arg2: str):
-    with open('dict.txt', mode='a+') as f:
-        f.write(arg1 + ',' + arg2 + '\n')
-
-    with open("dict.txt", mode="r")as f:
-        print(f.read())
-
+    msg = dictMsg.connect + '\n' + arg1 + ',' + arg2
+    dictMsg.edit(msg)
+    print(msg)
 
 def showDict() -> str:
-    f = open('dict.txt', 'r')
-    lines = f.readlines()
+    msg = dictMsg.connect
+    lines = msg.splitlines()
     print(lines)
     output = "現在登録されている辞書一覧\n"
     for index, line in enumerate(lines):
         pattern = line.strip().split(',')
         output += "{0}: {1} -> {2}\n".format(index + 1, pattern[0], pattern[1])
-    f.close()
     return output
 
 
 async def removeDict(num: int) -> bool:
-    try:
-        cmd = ["sed", "-i.bak", "-e", ("{0}d").format(num), "dict.txt"]
-        subprocess.call(cmd)
-    except Exception as e:
-        print(e)
-        return False
     return True
 
 
 def replaceDict(text: str) -> str:
-    if (not os.path.isfile('dict.txt')):
-        open('dict.txt', 'w+').close()
-    f = open('dict.txt', 'r+')
-    lines = f.readlines()
+    msg = dictMsg.connect
+    lines = msg.splitlines()
     print(lines)
     for line in lines:
         pattern = line.strip().split(',')
@@ -167,8 +156,12 @@ stamp = re.compile('<:([^:]*):.*>')
 async def on_ready():
     # 起動時の処理
     await tree.sync()
-    with open("dict.txt", "w"):  # 起動時に空のdictを生成
-        pass
+    channel = bot.get_channel(964896588587761715)
+    async for message in channel.history(limit=1):
+        if message.author == bot.user:
+            msg = message
+        else:
+            msg = await channel.send('.佐藤,吉村')
     print('Bot is wake up. hi bro.')
 
 """おてほん
