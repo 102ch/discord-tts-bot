@@ -165,16 +165,18 @@ stamp = re.compile('<:([^:]*):.*>')
 @bot.event
 async def on_ready():
     # 起動時の処理
-    await tree.sync()
 
     global dictMsg
     channel = bot.get_channel(dictID)
+    await channel.send(content = 'ok1')
     print(channel)
     async for message in bot.history(limit=1):
         if message.author == client.user:
             dictMsg = message
         else:
             dictMsg = await channel.send('文字列,文字列')
+    await channel.send(content = 'ok2')
+    await tree.sync()
     print('Bot is wake up. hi bro.')
 
 """おてほん
