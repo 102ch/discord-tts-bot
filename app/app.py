@@ -168,14 +168,12 @@ async def on_ready():
 
     global dictMsg
     channel = bot.get_channel(dictID)
-    await channel.send(content = 'ok1')
     print(channel)
-    async for message in bot.history(limit=1):
-        if message.author == client.user:
+    async for message in channel.history(limit=1):
+        if message.author == bot.user:
             dictMsg = message
         else:
             dictMsg = await channel.send('文字列,文字列')
-    await channel.send(content = 'ok2')
     await tree.sync()
     print('Bot is wake up. hi bro.')
 
