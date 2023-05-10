@@ -7,5 +7,6 @@ services:
     environment:
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
       - DISCORD_APP_ID=${DISCORD_APP_ID}
+      - DICT_CH_ID=${DICT_CH_ID}
     volumes:
       - ./app:/root/src
