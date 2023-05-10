@@ -15,7 +15,7 @@ import asyncio
 queue_dict = defaultdict(deque)
 connecting_channels = set()
 
-dictID = 952075555866558484#
+dictID = os.environ['DICT_CH_ID']
 dictMsg = None
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
