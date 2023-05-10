@@ -15,6 +15,8 @@ import asyncio
 queue_dict = defaultdict(deque)
 connecting_channels = set()
 
+dictID = os.environ['DICT_CH_ID']
+dictMsg = None
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
@@ -37,47 +39,47 @@ def current_milli_time() -> int:
     return round(time.time() * 1000)
 
 
-def addDict(arg1: str, arg2: str):
-    with open('dict.txt', mode='a+') as f:
-        f.write(arg1 + ',' + arg2 + '\n')
-
-    with open("dict.txt", mode="r")as f:
-        print(f.read())
-
+async def addDict(arg1: str, arg2: str):
+    global dictMsg
+    msg = dictMsg.content + '\n' + arg1 + ',' + arg2
+    dictMsg = await dictMsg.edit(content = msg)
+    print(msg)
 
 def showDict() -> str:
-    f = open('dict.txt', 'r')
-    lines = f.readlines()
+    global dictMsg
+    msg = dictMsg.content
+    lines = msg.splitlines()
     print(lines)
     output = "現在登録されている辞書一覧\n"
     for index, line in enumerate(lines):
-        pattern = line.strip().split(',')
-        output += "{0}: {1} -> {2}\n".format(index + 1, pattern[0], pattern[1])
-    f.close()
+        if index:
+            pattern = line.strip().split(',')
+            output += "{0}: {1} -> {2}\n".format(index, pattern[0], pattern[1])
     return output
 
 
 async def removeDict(num: int) -> bool:
-    try:
-        cmd = ["sed", "-i.bak", "-e", ("{0}d").format(num), "dict.txt"]
-        subprocess.call(cmd)
-    except Exception as e:
-        print(e)
-        return False
+    if num <= 0:
+        return True
+    global dictMsg
+    msg = dictMsg.content
+    lines = msg.splitlines()
+    output = []
+    for index, line in enumerate(lines):
+        if index != num:
+            output.append(line)
+    dictMsg = await dictMsg.edit(content = '\n'.join(output))
     return True
 
 
 def replaceDict(text: str) -> str:
-    if (not os.path.isfile('dict.txt')):
-        open('dict.txt', 'w+').close()
-    f = open('dict.txt', 'r+')
-    lines = f.readlines()
-    print(lines)
+    global dictMsg
+    msg = dictMsg.content
+    lines = msg.splitlines()
     for line in lines:
         pattern = line.strip().split(',')
         if pattern[0] in text and len(pattern) >= 2:
             text = text.replace(pattern[0], pattern[1])
-    f.close()
     return text
 
 
@@ -166,9 +168,16 @@ stamp = re.compile('<:([^:]*):.*>')
 @bot.event
 async def on_ready():
     # 起動時の処理
+
+    global dictMsg
+    channel = bot.get_channel(dictID)
+    print(channel)
+    async for message in channel.history(limit=1):
+        if message.author == bot.user:
+            dictMsg = message
+        else:
+            dictMsg = await channel.send('文字列,文字列')
     await tree.sync()
-    with open("dict.txt", "w"):  # 起動時に空のdictを生成
-        pass
     print('Bot is wake up. hi bro.')
 
 """おてほん
@@ -253,7 +262,7 @@ async def get(interaction: discord.Interaction):
 async def add(interaction: discord.Interaction, arg1: str, arg2: str):
     if len(arg1) > 10 or len(arg2) > 10:
         return await interaction.response.send_message("荒らしは許されませんよ♡\n置換する単語は10文字儼にしてね")
-    addDict(arg1, arg2)
+    await addDict(arg1, arg2)
     await interaction.response.send_message(f"{arg1}を{arg2}と読むように辞書に登録しました！")
 
 
