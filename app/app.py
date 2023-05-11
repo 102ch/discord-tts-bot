@@ -15,8 +15,9 @@ import asyncio
 queue_dict = defaultdict(deque)
 connecting_channels = set()
 
-dictID = os.environ['DICT_CH_ID']
+dictID = int(os.environ['DICT_CH_ID'])
 dictMsg = None
+
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
@@ -42,8 +43,9 @@ def current_milli_time() -> int:
 async def addDict(arg1: str, arg2: str):
     global dictMsg
     msg = dictMsg.content + '\n' + arg1 + ',' + arg2
-    dictMsg = await dictMsg.edit(content = msg)
+    dictMsg = await dictMsg.edit(content=msg)
     print(msg)
+
 
 def showDict() -> str:
     global dictMsg
@@ -68,7 +70,7 @@ async def removeDict(num: int) -> bool:
     for index, line in enumerate(lines):
         if index != num:
             output.append(line)
-    dictMsg = await dictMsg.edit(content = '\n'.join(output))
+    dictMsg = await dictMsg.edit(content='\n'.join(output))
     return True
 
 
