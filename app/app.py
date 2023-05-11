@@ -282,9 +282,9 @@ async def on_message(message: discord.Message):
     # テキストチャンネルにメッセージが送信されたときの処理
     global volume
 
-    # # botの排除
-    # if message.author.bot:
-    #     return await bot.process_commands(message)
+    # botの排除
+    if message.author.bot:
+        return await bot.process_commands(message)
     volume = 0.5
 
     voice = get_voice_client(message.channel.id)
