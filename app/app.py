@@ -339,6 +339,17 @@ async def on_voice_state_update(
         timer = Timer(3, os.remove, (filename, ))
         timer.start()
 
+@bot.event
+async def on_voice_state_update(member: discord.Member, before:discord.VoiceState, after:discord.VoiceState):
+    allbot = True
+    for mem in before.channel.members:
+         if  not mem.bot:
+             allbot = False
+    if before.channel and not after.channel == before.channel and allbot:
+        client = member.guild.voice_client
+        if client:
+            await client.disconnect()
+            await before.channel.send('ボイスチャンネルからログアウトしました')
 
 async def main():
     # start the client
