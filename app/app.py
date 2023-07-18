@@ -314,13 +314,8 @@ async def on_message(message: discord.Message):
     # コマンド側へメッセージ内容を渡す
     await bot.process_commands(message)
 
-
 @bot.event
-async def on_voice_state_update(
-        member: discord.Member,
-        before: discord.VoiceState,
-        after: discord.VoiceState):
-
+async def on_voice_state_update(member: discord.Member, before:discord.VoiceState, after:discord.VoiceState):
     # Chatに接続中でないなら処理しない
     global currentChannel
     if currentChannel is None:
@@ -330,17 +325,11 @@ async def on_voice_state_update(
         filename = await jtalk(replaceDict(member.display_name + "さんこんにちは！"))
         enqueue(member.guild.voice_client, member.guild,
                 discord.FFmpegPCMAudio(filename), filename)
-        timer = Timer(3, os.remove, (filename, ))
-        timer.start()
     if before.channel and not after.channel:
         filename = await jtalk(replaceDict(member.display_name + "さんが退出しました"))
         enqueue(member.guild.voice_client, member.guild,
                 discord.FFmpegPCMAudio(filename), filename)
-        timer = Timer(3, os.remove, (filename, ))
-        timer.start()
-
-@bot.event
-async def on_voice_state_update(member: discord.Member, before:discord.VoiceState, after:discord.VoiceState):
+        
     allbot = True
     for mem in before.channel.members:
          if  not mem.bot:
