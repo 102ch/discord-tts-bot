@@ -203,6 +203,8 @@ async def join(interaction: discord.Interaction):
     connecting_channels.add(interaction.channel_id)
     await interaction.followup.send('ボイスチャンネルに参加します')
     try:
+        global currentChannel
+        currentChannel = interaction.channel_id
         await interaction.channel.connect()
     except Exception as e:
         connecting_channels.remove(interaction.channel_id)
