@@ -15,6 +15,11 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - uses: docker/setup-buildx-action@v2
+      - name: set tag
+        run: |-
+          export TIMESTAMP=$(date +%s)
+          export SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "IMAGE_TAG=$SHA-$TIMESTAMP" >> $GITHUB_ENV
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v2
         with:
@@ -28,12 +33,6 @@ jobs:
           file: ./app/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/102ch/discord-tts-bot:latest
+          tags: ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Deploy to Server
-        uses: JimCronqvist/action-ssh@master
-        with:
-          hosts: 'root@mc.k1h.dev:5000'
-          privateKey: ${{ secrets.SSH_PRIVATEKEY }}
-          command: cd discord-tts-bot; git pull; docker pull ghcr.io/102ch/discord-tts-bot:latest; docker-compose -f docker-compose-release.yml up -d
