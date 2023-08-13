@@ -331,12 +331,14 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
         filename = await jtalk(replaceDict(member.display_name + "さんが退出しました"))
         enqueue(member.guild.voice_client, member.guild,
                 discord.FFmpegPCMAudio(filename), filename)
-        
-    allbot = True
+    allbot = True    
+    selfcheck = False
     for mem in before.channel.members:
+        if mem.id == bot.user.id:
+            selfcheck = True
         if  not mem.bot:
             allbot = False
-    if before.channel and not after.channel == before.channel and allbot:
+    if before.channel and allbot and selfcheck:
         client = member.guild.voice_client
         if client:
             await client.disconnect()
