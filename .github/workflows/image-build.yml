@@ -27,12 +27,12 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       - name: Build
-        uses: docker/build-push-action@v3
+        uses: docker/build-push-action@v4
         with:
           context: ./app
           file: ./app/Dockerfile
           platforms: linux/amd64
           push: true
-          tags: ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }}
+          tags: ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }},ghcr.io/102ch/discord-tts-bot:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max

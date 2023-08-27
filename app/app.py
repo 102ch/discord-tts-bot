@@ -130,7 +130,7 @@ def get_voice_client(channel_id: int) -> discord.VoiceClient | None:
 
 async def text_check(text: str, user_name: str) -> str:
     print(text)
-    if len(text) > 100:
+    if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
     if stamp.search(text):
         text = replaceStamp(text)
@@ -140,7 +140,7 @@ async def text_check(text: str, user_name: str) -> str:
     text = re.sub('http.*', '', text)
     text = replaceDict(text)
     text = user_name + text
-    if len(text) > 100:
+    if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
     filename = await jtalk(text)
     if os.path.getsize(filename) > 10000000:
