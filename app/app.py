@@ -136,9 +136,10 @@ async def text_check(text: str, user_name: str) -> str:
         text = replaceStamp(text)
     if mention.search(text):
         text = await replaceUserName(text)
-    text = re.sub('#.*', '', str(user_name)) + ' ' + text
+    
     text = re.sub('http.*', '', text)
     text = replaceDict(text)
+    text = user_name + text
     if len(text) > 100:
         raise Exception("文字数が長すぎるよ")
     filename = await jtalk(text)
@@ -314,8 +315,13 @@ async def on_message(message: discord.Message):
 
     text = message.content
 
+    if message.author.id in userNicknameDict:
+        user_name=userNicknameDict[message.author.id]
+    else:
+        user_name=message.author.display_name
+    
     try:
-        text, filename = await text_check(text, message.author.name)
+        text, filename = await text_check(text, user_name)
     except Exception as e:
         return await message.channel.send(e)
 
