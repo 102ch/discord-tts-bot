@@ -18,6 +18,7 @@ connecting_channels = set()
 dictID = int(os.environ['DICT_CH_ID'])
 dictMsg = None
 
+userNicknameDict:dict[int,str] =dict ()
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
@@ -135,10 +136,11 @@ async def text_check(text: str, user_name: str) -> str:
         text = replaceStamp(text)
     if mention.search(text):
         text = await replaceUserName(text)
-    text = re.sub('#.*', '', str(user_name)) + ' ' + text
+    
     text = re.sub('http.*', '', text)
     text = replaceDict(text)
-    if len(text) > 100:
+    text = user_name + text
+    if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
     filename = await jtalk(text)
     if os.path.getsize(filename) > 10000000:
@@ -277,7 +279,20 @@ async def remove(interaction: discord.Interaction, num: int):
         await interaction.response.send_message("削除しました")
     else:
         await interaction.response.send_message("エラーが発生しました")
-
+        
+@tree.command(name="rename", description="あなたの呼び方を変えるよ")
+@discord.app_commands.describe(name="あなたの呼び方を入れてね")
+async def rename(interaction: discord.Interaction, name: str=None):
+    if not name:
+        if interaction.user.id in userNicknameDict:
+            nickname=userNicknameDict[interaction.user.id]
+            return await interaction.response.send_message(f"あなたの呼び方は{nickname}だよ")
+        else:
+            return await interaction.response.send_message(f"あなたの呼び方はまだ設定されてないよ")
+    if len(name) > 10:
+        return await interaction.response.send_message("荒らしは許されませんよ♡\n呼び方は10文字儼にしてね")
+    userNicknameDict[interaction.user.id] = name
+    await interaction.response.send_message(f"あなたの呼び方を{name}に変えたよ")
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -300,8 +315,13 @@ async def on_message(message: discord.Message):
 
     text = message.content
 
+    if message.author.id in userNicknameDict:
+        user_name=userNicknameDict[message.author.id]
+    else:
+        user_name=message.author.display_name
+    
     try:
-        text, filename = await text_check(text, message.author.name)
+        text, filename = await text_check(text, user_name)
     except Exception as e:
         return await message.channel.send(e)
 
@@ -322,13 +342,16 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
     global currentChannel
     if currentChannel is None:
         return
-
+    if member.id in userNicknameDict:
+        username=userNicknameDict[member.id]
+    else:
+        username=member.display_name
     if not before.channel and after.channel:
-        filename = await jtalk(replaceDict(member.display_name + "さんこんにちは！"))
+        filename = await jtalk(username +"さんこんにちは！")
         enqueue(member.guild.voice_client, member.guild,
                 discord.FFmpegPCMAudio(filename), filename)
     if before.channel and not after.channel:
-        filename = await jtalk(replaceDict(member.display_name + "さんが退出しました"))
+        filename = await jtalk(username + "さんが退出しました")
         enqueue(member.guild.voice_client, member.guild,
                 discord.FFmpegPCMAudio(filename), filename)
     allbot = True    
