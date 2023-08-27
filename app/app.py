@@ -138,7 +138,7 @@ async def text_check(text: str, user_name: str) -> str:
     text = re.sub('#.*', '', str(user_name)) + ' ' + text
     text = re.sub('http.*', '', text)
     text = replaceDict(text)
-    if len(text) > 150:
+    if len(text) > 100:
         raise Exception("文字数が長すぎるよ")
     filename = await jtalk(text)
     if os.path.getsize(filename) > 10000000:
