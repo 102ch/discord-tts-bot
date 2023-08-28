@@ -18,7 +18,7 @@ connecting_channels = set()
 dictID = int(os.environ['DICT_CH_ID'])
 dictMsg = None
 
-userNicknameDict:dict[int,str] =dict ()
+userNicknameDict:dict[int,str] = dict ()
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
