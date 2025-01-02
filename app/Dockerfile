@@ -23,7 +23,8 @@ RUN mkdir -p /root/src
 COPY requirements.txt /root/src
 COPY . /root/src
 WORKDIR /root/src
-
+# 既存のvenvを削除
+RUN rm -rf /root/src/.venv
 ENV POETRY_HOME=/opt/poetry
 RUN curl -sSL https://install.python-poetry.org | python3 && \
     cd /usr/local/bin && \

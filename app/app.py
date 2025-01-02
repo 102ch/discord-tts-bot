@@ -8,9 +8,10 @@ import time
 from threading import Timer
 from collections import defaultdict, deque
 import asyncio
+from database import get_nickname, set_nickname, get_dictionary, set_dictionary, set_volume, get_volume, delete_dictionary
 
-from dotenv import load_dotenv
-load_dotenv()
+# from dotenv import load_dotenv
+# load_dotenv()
 
 queue_dict = defaultdict(deque)
 connecting_channels = set()
@@ -41,50 +42,48 @@ def current_milli_time() -> int:
     return round(time.time() * 1000)
 
 
-async def addDict(arg1: str, arg2: str):
-    global dictMsg
-    msg = dictMsg.content + '\n' + arg1 + ',' + arg2
-    dictMsg = await dictMsg.edit(content=msg)
-    print(msg)
+def addDict(server_id: int, arg1: str, arg2: str):
+    set_dictionary(server_id, arg1, arg2)
 
 
-def showDict() -> str:
-    global dictMsg
-    msg = dictMsg.content
-    lines = msg.splitlines()
-    print(lines)
+def showDict(server_id: int) -> str:
+    dict = get_dictionary(server_id)
+    print(dict)
+    if not dict:
+        return "登録されている辞書はありません"
     output = "現在登録されている辞書一覧\n"
-    for index, line in enumerate(lines):
-        if index:
-            pattern = line.strip().split(',')
-            output += "{0}: {1} -> {2}\n".format(index, pattern[0], pattern[1])
+    index = 0
+    for key, value in dict.items():
+        output += f"{index}: {key} -> {value}\n"
+        index += 1
     return output
 
 
-async def removeDict(num: int) -> bool:
-    if num <= 0:
-        return True
-    global dictMsg
-    msg = dictMsg.content
-    lines = msg.splitlines()
-    output = []
-    for index, line in enumerate(lines):
-        if index != num:
-            output.append(line)
-    dictMsg = await dictMsg.edit(content='\n'.join(output))
-    return True
+def removeDict(list_index: int, server_id: int) -> bool:
+    if list_index < 0:
+        return False
+    dict = get_dictionary(server_id)
+    index = 0
+    keyword = ""
+    print(list_index, dict)
+    # 辞書の中から削除する単語を探す
+    for key, value in dict.items():
+        if index == list_index:
+            print(key)
+            keyword = key
+            # 探すことができたら削除する
+            delete_dictionary(server_id, keyword)
+            return True
+        index += 1
+    if keyword == "":
+        return False
 
-
-def replaceDict(text: str) -> str:
-    global dictMsg
-    msg = dictMsg.content
-    lines = msg.splitlines()
-    for line in lines:
-        pattern = line.strip().split(',')
-        if pattern[0] in text and len(pattern) >= 2:
-            text = text.replace(pattern[0], pattern[1])
+# 辞書に登録されている文字列を置換する
+def replaceDict(text: str, server_id: int) -> str:
+    dict = get_dictionary(server_id)
+    for key, value in dict.items():
+        text = text.replace(key, value)
     return text
-
 
 def replaceStamp(text: str) -> str:
     text = re.sub('<:([^:]*):.*>', '\\1', text)
@@ -128,7 +127,7 @@ def get_voice_client(channel_id: int) -> discord.VoiceClient | None:
         return None
 
 
-async def text_check(text: str, user_name: str) -> str:
+async def text_check(text: str, user_name: str, server_id: int) -> str:
     print(text)
     if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
@@ -138,7 +137,7 @@ async def text_check(text: str, user_name: str) -> str:
         text = await replaceUserName(text)
     
     text = re.sub('http.*', '', text)
-    text = replaceDict(text)
+    text = replaceDict(text, server_id)
     text = user_name + text
     if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
@@ -172,8 +171,6 @@ stamp = re.compile('<:([^:]*):.*>')
 @bot.event
 async def on_ready():
     # 起動時の処理
-
-    global dictMsg
     channel = bot.get_channel(dictID)
     print(channel)
     async for message in channel.history(limit=1):
@@ -240,13 +237,15 @@ async def f(interaction: discord.Interaction):
 
 @tree.command(name="volume", description="音量を調整するよ")
 async def vol(interaction: discord.Interaction, control: str):
-    global volume
+    volume = get_volume(interaction.guild.id)
 
     if control == "up":
         volume += 0.1
+        set_volume(interaction.guild.id, volume)
         await interaction.response.send_message(f"音量を上げました\n現在の音量:{volume}")
     elif control == "down":
         volume -= 0.1
+        set_volume(interaction.guild.id, volume)
         await interaction.response.send_message(f"音量を下げました\n現在の音量:{volume}")
     else:
         await interaction.response.send_message(f"up もしくは down を入力してください\n現在の音量:{volume}")
@@ -260,7 +259,7 @@ async def bye(interaction: discord.Interaction):
 
 @tree.command(name="get", description="辞書の内容を取得するよ")
 async def get(interaction: discord.Interaction):
-    await interaction.response.send_message(showDict())
+    await interaction.response.send_message(showDict(interaction.guild.id))
 
 
 @tree.command(name="add", description="辞書に新しい単語を登録するよ")
@@ -268,14 +267,13 @@ async def get(interaction: discord.Interaction):
 async def add(interaction: discord.Interaction, arg1: str, arg2: str):
     if len(arg1) > 10 or len(arg2) > 10:
         return await interaction.response.send_message("荒らしは許されませんよ♡\n置換する単語は10文字儼にしてね")
-    await addDict(arg1, arg2)
+    addDict(interaction.guild.id, arg1, arg2)
     await interaction.response.send_message(f"{arg1}を{arg2}と読むように辞書に登録しました！")
-
 
 @tree.command(name="remove", description="辞書の単語を削除するよ")
 @discord.app_commands.describe(num="削除する単語の番号を入れてね")
 async def remove(interaction: discord.Interaction, num: int):
-    if await removeDict(num):
+    if removeDict(num, interaction.guild.id):
         await interaction.response.send_message("削除しました")
     else:
         await interaction.response.send_message("エラーが発生しました")
@@ -285,24 +283,26 @@ async def remove(interaction: discord.Interaction, num: int):
 async def rename(interaction: discord.Interaction, name: str=None):
     if not name:
         if interaction.user.id in userNicknameDict:
-            nickname=userNicknameDict[interaction.user.id]
+            nickname=get_nickname(interaction.guild.id, interaction.user.id)
             return await interaction.response.send_message(f"あなたの呼び方は{nickname}だよ")
         else:
             return await interaction.response.send_message(f"あなたの呼び方はまだ設定されてないよ")
     if len(name) > 10:
         return await interaction.response.send_message("荒らしは許されませんよ♡\n呼び方は10文字儼にしてね")
-    userNicknameDict[interaction.user.id] = name
+    set_nickname(interaction.guild.id, interaction.user.id, name)
     await interaction.response.send_message(f"あなたの呼び方を{name}に変えたよ")
 
 @bot.event
 async def on_message(message: discord.Message):
     # テキストチャンネルにメッセージが送信されたときの処理
-    global volume, currentChannel
+    global currentChannel
 
     # botの排除
     if message.author.bot:
         return await bot.process_commands(message)
-    volume = 0.5
+    
+    if get_volume(message.guild.id) is None:
+        set_volume(message.guild.id, 0.5)
 
     voice = get_voice_client(message.channel.id)
 
@@ -327,7 +327,7 @@ async def on_message(message: discord.Message):
 
     try:
         # テキストをチェック
-        text, filename = await text_check(text, user_name)
+        text, filename = await text_check(text, user_name, message.guild.id)
     except Exception as e:
         return await message.channel.send(e)
 
@@ -373,7 +373,6 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
 async def main():
     # start the client
     async with bot:
-
         await bot.start(client_id)
 
 asyncio.run(main())
