@@ -5,8 +5,18 @@ services:
     build: ./app
     tty: true
     environment:
-      - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
-      - DISCORD_APP_ID=${DISCORD_APP_ID}
-      - DICT_CH_ID=${DICT_CH_ID}
+      DISCORD_CLIENT_ID: ${DISCORD_CLIENT_ID}
+      DISCORD_APP_ID: ${DISCORD_APP_ID}
+      DICT_CH_ID: ${DICT_CH_ID}
     volumes:
       - ./app:/root/src
+  # db:
+  #   image: postgres:13
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+  #     POSTGRES_DB: ${POSTGRES_DB}
+  #   ports:
+  #     - "5432:5432"
+  #   volumes:
+  #     - ./db:/var/lib/postgresql/data

@@ -1,0 +1,19 @@
+[tool.poetry]
+name = "app"
+version = "0.1.0"
+description = ""
+authors = ["csenet <admin@k1h.dev>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.13"
+pydub = "^0.25.1"
+discord-py = {extras = ["voice"], version = "^2.4.0"}
+python-dotenv = "^1.0.1"
+audioop-lts = "^0.2.1"
+sqlalchemy = "^2.0.36"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

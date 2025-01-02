@@ -4,3 +4,4 @@ configdb/*
 dict.*
 *.wav
 .DS_Store
+.venv

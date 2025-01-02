@@ -9,8 +9,8 @@ from threading import Timer
 from collections import defaultdict, deque
 import asyncio
 
-# from dotenv import load_dotenv
-# load_dotenv()
+from dotenv import load_dotenv
+load_dotenv()
 
 queue_dict = defaultdict(deque)
 connecting_channels = set()
@@ -297,7 +297,7 @@ async def rename(interaction: discord.Interaction, name: str=None):
 @bot.event
 async def on_message(message: discord.Message):
     # テキストチャンネルにメッセージが送信されたときの処理
-    global volume
+    global volume, currentChannel
 
     # botの排除
     if message.author.bot:
@@ -306,7 +306,11 @@ async def on_message(message: discord.Message):
 
     voice = get_voice_client(message.channel.id)
 
+    # ボイスチャンネルに接続していない場合は処理しない
     if not voice:
+        return await bot.process_commands(message)
+    # ボイスチャンネルに接続している場合、現在接続しているボイスチャンネルからのメッセージでない場合は処理しない
+    if voice.channel.id != currentChannel:
         return await bot.process_commands(message)
 
     if voice is True and volume is None:
@@ -315,12 +319,14 @@ async def on_message(message: discord.Message):
 
     text = message.content
 
+    # メンションを辞書で置換
     if message.author.id in userNicknameDict:
         user_name=userNicknameDict[message.author.id]
     else:
         user_name=message.author.display_name
-    
+
     try:
+        # テキストをチェック
         text, filename = await text_check(text, user_name)
     except Exception as e:
         return await message.channel.send(e)
@@ -330,10 +336,7 @@ async def on_message(message: discord.Message):
 
     enqueue(message.guild.voice_client, message.guild,
             discord.FFmpegPCMAudio(filename), filename)
-    # timer = Timer(3, os.remove, (filename, ))
-    # timer.start()
-    # os.remove(filename)
-    # コマンド側へメッセージ内容を渡す
+    
     await bot.process_commands(message)
 
 @bot.event

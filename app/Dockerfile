@@ -1,4 +1,4 @@
-FROM ubuntu
+FROM python:3.13-bookworm
 USER root
 
 RUN apt-get update
@@ -8,10 +8,10 @@ RUN apt-get install -y vim less
 RUN apt-get install -y \
     ffmpeg
 
-RUN apt-get install -y mecab open-jtalk open-jtalk-mecab-naist-jdic hts-voice-nitech-jp-atr503-m001 python3 wget unzip pip
+RUN apt-get install -y mecab open-jtalk open-jtalk-mecab-naist-jdic wget unzip pip
 RUN wget http://sourceforge.net/projects/mmdagent/files/MMDAgent_Example/MMDAgent_Example-1.7/MMDAgent_Example-1.7.zip
 RUN unzip MMDAgent_Example-1.7.zip
-RUN cp -r MMDAgent_Example-1.7/Voice/mei/ /usr/share/hts-voice/
+RUN cp -r MMDAgent_Example-1.7/Voice/ /usr/share/hts-voice/
 
 ENV LANG ja_JP.UTF-8
 ENV LANGUAGE ja_JP:ja
@@ -24,8 +24,12 @@ COPY requirements.txt /root/src
 COPY . /root/src
 WORKDIR /root/src
 
-RUN pip install --upgrade pip
-RUN pip install --upgrade setuptools
-RUN pip install -r requirements.txt
+ENV POETRY_HOME=/opt/poetry
+RUN curl -sSL https://install.python-poetry.org | python3 && \
+    cd /usr/local/bin && \
+    ln -s /opt/poetry/bin/poetry && \
+    poetry config virtualenvs.create false
 
-CMD ["python3","app.py"]
+RUN poetry install --no-interaction
+
+CMD ["poetry" , "run", "python3", "app.py"]
