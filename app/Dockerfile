@@ -1,31 +1,57 @@
 FROM ubuntu
-USER root
 
-RUN apt-get update
-RUN apt-get -y install locales && \
-    localedef -f UTF-8 -i ja_JP ja_JP.UTF-8
-RUN apt-get install -y vim less
-RUN apt-get install -y \
-    ffmpeg
+# セキュリティ向上のため非rootユーザーを作成
+RUN groupadd -r botuser && useradd -r -g botuser botuser
 
-RUN apt-get install -y mecab open-jtalk open-jtalk-mecab-naist-jdic hts-voice-nitech-jp-atr503-m001 python3 wget unzip pip
-RUN wget http://sourceforge.net/projects/mmdagent/files/MMDAgent_Example/MMDAgent_Example-1.7/MMDAgent_Example-1.7.zip
-RUN unzip MMDAgent_Example-1.7.zip
-RUN cp -r MMDAgent_Example-1.7/Voice/mei/ /usr/share/hts-voice/
+# システムの更新とパッケージインストール
+RUN apt-get update && apt-get install -y \
+    locales \
+    vim \
+    less \
+    ffmpeg \
+    mecab \
+    open-jtalk \
+    open-jtalk-mecab-naist-jdic \
+    hts-voice-nitech-jp-atr503-m001 \
+    python3 \
+    python3-pip \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
 
+# 日本語ロケールの設定
+RUN localedef -f UTF-8 -i ja_JP ja_JP.UTF-8
+
+# 音声ファイルのダウンロードと設置
+RUN wget http://sourceforge.net/projects/mmdagent/files/MMDAgent_Example/MMDAgent_Example-1.7/MMDAgent_Example-1.7.zip \
+    && unzip MMDAgent_Example-1.7.zip \
+    && cp -r MMDAgent_Example-1.7/Voice/mei/ /usr/share/hts-voice/ \
+    && rm -rf MMDAgent_Example-1.7* \
+    && chmod -R 755 /usr/share/hts-voice/
+
+# 環境変数の設定
 ENV LANG ja_JP.UTF-8
 ENV LANGUAGE ja_JP:ja
 ENV LC_ALL ja_JP.UTF-8
 ENV TZ JST-9
 ENV TERM xterm
 
-RUN mkdir -p /root/src
-COPY requirements.txt /root/src
-COPY . /root/src
-WORKDIR /root/src
+# アプリケーション用ディレクトリの作成
+RUN mkdir -p /app /app/temp && chown -R botuser:botuser /app
 
-RUN pip install --upgrade pip
-RUN pip install --upgrade setuptools
-RUN pip install -r requirements.txt
+# 作業ディレクトリの設定
+WORKDIR /app
 
-CMD ["python3","app.py"]
+# 依存関係ファイルのコピーとインストール
+COPY requirements.txt .
+RUN python3 -m pip install --no-cache-dir --upgrade pip setuptools && \
+    python3 -m pip install --no-cache-dir -r requirements.txt
+
+# アプリケーションファイルのコピー
+COPY . .
+RUN chown -R botuser:botuser /app
+
+# 非rootユーザーに切り替え
+USER botuser
+
+CMD ["python3", "app.py"]

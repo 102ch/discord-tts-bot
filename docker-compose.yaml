@@ -1,4 +1,4 @@
-version: "3.1"
+version: "3.8"
 
 services:
   app:
@@ -9,4 +9,11 @@ services:
       - DISCORD_APP_ID=${DISCORD_APP_ID}
       - DICT_CH_ID=${DICT_CH_ID}
     volumes:
-      - ./app:/root/src
+      - ./app:/app
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/temp:noexec,nosuid,size=100m

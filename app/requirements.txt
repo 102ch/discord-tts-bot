@@ -1,2 +1,3 @@
 discord.py[voice]==2.3.2
-pydub
+pydub==0.25.1
+python-dotenv==1.0.0

@@ -1,24 +1,80 @@
 # -*- coding: utf-8 -*-
+"""
+Discord TTS Bot - Improved Version
+OpenJTalkを用いてDiscordのチャットに投稿されたメッセージをVoice Chatで読み上げるBot
+"""
 import discord
 from discord.ext import commands
 import os
 import re
 import subprocess
 import time
+import asyncio
+import logging
 from threading import Timer
 from collections import defaultdict, deque
-import asyncio
+from typing import Dict, Deque, Set, Optional, Tuple
 
-# from dotenv import load_dotenv
-# load_dotenv()
+# 環境変数管理をdotenvに統一
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
+# ローカルインポート（ファイルが存在する場合のみ）
+try:
+    from config import *
+    from exceptions import *
+except ImportError:
+    # config.pyが存在しない場合のフォールバック設定
+    def get_env_var(key: str, default: Optional[str] = None) -> str:
+        value = os.environ.get(key, default)
+        if value is None:
+            raise ValueError(f"環境変数 {key} が設定されていません")
+        return value
+    
+    DISCORD_CLIENT_ID = get_env_var('DISCORD_CLIENT_ID')
+    DISCORD_APP_ID = get_env_var('DISCORD_APP_ID')
+    DICT_CH_ID = int(get_env_var('DICT_CH_ID'))
+    MAX_TEXT_LENGTH = 150
+    MAX_FILE_SIZE = 10000000
+    MAX_DICT_WORD_LENGTH = 10
+    DEFAULT_VOLUME = 0.5
+    VOLUME_STEP = 0.1
+    URL_PATTERN = r'^http'
+    MENTION_PATTERN = r'<@[^>]*>'
+    STAMP_PATTERN = r'<:([^:]*):.*>'
+    
+    # カスタム例外のフォールバック
+    class TTSBotError(Exception):
+        pass
+    class TextTooLongError(TTSBotError):
+        def __init__(self, length: int, max_length: int):
+            super().__init__(f"テキストが長すぎます ({length}/{max_length}文字)")
+    class FileTooLargeError(TTSBotError):
+        def __init__(self, size: int, max_size: int):
+            super().__init__(f"音声ファイルが大きすぎます ({size}/{max_size}バイト)")
+    class VoiceChannelError(TTSBotError):
+        pass
+    class DictionaryError(TTSBotError):
+        pass
+    class TTSProcessError(TTSBotError):
+        pass
+
+# ログ設定
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# 旧変数との互換性のため
 queue_dict = defaultdict(deque)
 connecting_channels = set()
-
-dictID = int(os.environ['DICT_CH_ID'])
+dictID = DICT_CH_ID
 dictMsg = None
-
-userNicknameDict:dict[int,str] = dict ()
+userNicknameDict: dict[int, str] = dict()
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
     queue = queue_dict[guild.id]
