@@ -24,7 +24,6 @@ COPY requirements.txt /root/src
 COPY . /root/src
 WORKDIR /root/src
 
-RUN python3 -m pip install --upgrade pip --break-system-packages
 RUN python3 -m pip install --upgrade setuptools --break-system-packages
 RUN python3 -m pip install -r requirements.txt --break-system-packages
 
