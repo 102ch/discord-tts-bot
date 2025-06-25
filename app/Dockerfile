@@ -43,7 +43,7 @@ RUN add-apt-repository ppa:deadsnakes/ppa \
 
 # Install uv using official installer
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.cargo/bin:$PATH"
+ENV PATH="/root/.local/bin:$PATH"
 
 # Create working directory
 RUN mkdir -p /root/src
