@@ -21,10 +21,13 @@ dictMsg = None
 userNicknameDict:dict[int,str] = dict ()
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
-    queue = queue_dict[guild.id]
-    queue.append([source, filename])
+    # ボイスクライアントが存在しない場合は、キューに追加せずに終了
     if not voice_client:
         return
+    
+    queue = queue_dict[guild.id]
+    queue.append([source, filename])
+    
     if not voice_client.is_playing():
         play(voice_client, queue)
 
@@ -222,6 +225,9 @@ async def dc(interaction: discord.Interaction):
     if client:
         global currentChannel
         currentChannel = None
+        # キューをクリアして蓄積されたメッセージを削除
+        if interaction.guild.id in queue_dict:
+            queue_dict[interaction.guild.id].clear()
         await client.disconnect()
         await interaction.followup.send('ボイスチャンネルからログアウトしました')
     else:
@@ -364,6 +370,9 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
     if before.channel and allbot and selfcheck:
         client = member.guild.voice_client
         if client:
+            # 自動退出時もキューをクリア
+            if member.guild.id in queue_dict:
+                queue_dict[member.guild.id].clear()
             await client.disconnect()
             await before.channel.send('ボイスチャンネルからログアウトしました')
 
