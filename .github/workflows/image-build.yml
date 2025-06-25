@@ -10,17 +10,11 @@ on:
 
 jobs:
   build:
-    strategy:
-      matrix:
-        platform:
-          - runner: ubuntu-latest
-            arch: amd64
-          - runner: arm64
-            arch: arm64
-    runs-on: ${{ matrix.platform.runner }}
+    runs-on: ubuntu-latest
 
     steps:
       - uses: actions/checkout@v3
+      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v2
       - name: set tag
         run: |-
@@ -38,31 +32,8 @@ jobs:
         with:
           context: ./app
           file: ./app/Dockerfile
-          platforms: linux/${{ matrix.platform.arch }}
+          platforms: linux/amd64,linux/arm64
           push: true
-          tags: ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }}-${{ matrix.platform.arch }},ghcr.io/102ch/discord-tts-bot:latest-${{ matrix.platform.arch }}
-          cache-from: type=gha,scope=${{ matrix.platform.arch }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.platform.arch }}
-
-  manifest:
-    needs: build
-    runs-on: ubuntu-latest
-    steps:
-      - name: set tag
-        run: |-
-          export TIMESTAMP=$(date +%s)
-          export SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          echo "IMAGE_TAG=$SHA-$TIMESTAMP" >> $GITHUB_ENV
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v2
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Create and push manifest
-        run: |
-          docker buildx imagetools create \
-            -t ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }} \
-            -t ghcr.io/102ch/discord-tts-bot:latest \
-            ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }}-amd64 \
-            ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }}-arm64
+          tags: ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }},ghcr.io/102ch/discord-tts-bot:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
