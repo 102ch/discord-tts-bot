@@ -14,7 +14,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v3
-      - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v2
       - name: set tag
         run: |-
@@ -32,7 +31,7 @@ jobs:
         with:
           context: ./app
           file: ./app/Dockerfile
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           push: true
           tags: ghcr.io/102ch/discord-tts-bot:${{ env.IMAGE_TAG }},ghcr.io/102ch/discord-tts-bot:latest
           cache-from: type=gha

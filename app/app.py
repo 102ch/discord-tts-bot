@@ -8,12 +8,18 @@ import time
 from threading import Timer
 from collections import defaultdict, deque
 import asyncio
+import uuid
+import atexit
+import signal
+import threading
 
 # from dotenv import load_dotenv
 # load_dotenv()
 
 queue_dict = defaultdict(deque)
 connecting_channels = set()
+active_processes = set()
+cleanup_lock = threading.Lock()
 
 dictID = int(os.environ['DICT_CH_ID'])
 dictMsg = None
@@ -36,8 +42,20 @@ def play(voice_client: discord.VoiceClient, queue: deque):
     if not queue or voice_client.is_playing():
         return
     source = queue.popleft()
-    # os.remove(source[1])
-    voice_client.play(source[0], after=lambda e: play(voice_client, queue))
+    
+    def after_play(error):
+        if error:
+            print(f"Player error: {error}")
+        # Clean up the audio file after playing
+        try:
+            if os.path.exists(source[1]):
+                os.remove(source[1])
+        except Exception as e:
+            print(f"Failed to remove audio file {source[1]}: {e}")
+        # Continue playing next item in queue
+        play(voice_client, queue)
+    
+    voice_client.play(source[0], after=after_play)
 
 
 def current_milli_time() -> int:
@@ -113,25 +131,79 @@ async def jtalk(t) -> str:
     htsvoice = ['-m', '/usr/share/hts-voice/mei/mei_normal.htsvoice']
     pitch = ['-fm', '-5']
     speed = ['-r', '1.0']
-    # file = str(current_milli_time())
-    outwav = ['-ow', 'output.wav']
+    
+    # Generate unique filename to avoid conflicts
+    filename = f'output_{uuid.uuid4().hex[:8]}.wav'
+    outwav = ['-ow', filename]
     cmd = open_jtalk + mech + htsvoice + pitch + speed + outwav
-    c = subprocess.Popen(cmd, stdin=subprocess.PIPE)
-    c.stdin.write(t.encode())
-    c.stdin.close()
-    c.wait()
-    return 'output.wav'
+    
+    try:
+        c = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        with cleanup_lock:
+            active_processes.add(c)
+        
+        stdout, stderr = c.communicate(input=t.encode(), timeout=30)
+        
+        if c.returncode != 0:
+            raise Exception(f"OpenJTalk failed: {stderr.decode()}")
+            
+        return filename
+    except subprocess.TimeoutExpired:
+        c.kill()
+        raise Exception("OpenJTalk timeout")
+    except Exception as e:
+        if os.path.exists(filename):
+            os.remove(filename)
+        raise e
+    finally:
+        with cleanup_lock:
+            active_processes.discard(c)
 
 
 def get_voice_client(channel_id: int) -> discord.VoiceClient | None:
     for client in bot.voice_clients:
-        if client.channel.id == channel_id:
+        if client.channel and client.channel.id == channel_id:
             return client
     else:
         return None
 
 
-async def text_check(text: str, user_name: str) -> str:
+async def check_voice_client_health(voice_client: discord.VoiceClient) -> bool:
+    """Check if voice client is healthy and can play audio"""
+    try:
+        if not voice_client or not voice_client.is_connected():
+            return False
+        # Test if the voice client is responsive
+        return True
+    except Exception as e:
+        print(f"Voice client health check failed: {e}")
+        return False
+
+
+async def ensure_voice_connection(guild: discord.Guild, channel_id: int) -> discord.VoiceClient | None:
+    """Ensure we have a healthy voice connection"""
+    voice_client = get_voice_client(channel_id)
+    
+    if voice_client and await check_voice_client_health(voice_client):
+        return voice_client
+    
+    # Reconnect if connection is unhealthy
+    if voice_client:
+        try:
+            await voice_client.disconnect()
+        except:
+            pass
+    
+    try:
+        channel = bot.get_channel(channel_id)
+        if channel:
+            return await channel.connect()
+    except Exception as e:
+        print(f"Failed to reconnect to voice channel: {e}")
+        return None
+
+
+async def text_check(text: str, user_name: str) -> tuple[str, str]:
     print(text)
     if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
@@ -145,10 +217,17 @@ async def text_check(text: str, user_name: str) -> str:
     text = user_name + text
     if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
-    filename = await jtalk(text)
-    if os.path.getsize(filename) > 10000000:
-        raise Exception("再生時間が長すぎるよ")
-    return text, filename
+    
+    try:
+        filename = await jtalk(text)
+        if os.path.getsize(filename) > 10000000:
+            if os.path.exists(filename):
+                os.remove(filename)
+            raise Exception("再生時間が長すぎるよ")
+        return text, filename
+    except Exception as e:
+        print(f"TTS generation failed: {e}")
+        raise e
 
 
 client_id = os.environ['DISCORD_CLIENT_ID']
@@ -329,16 +408,25 @@ async def on_message(message: discord.Message):
     try:
         text, filename = await text_check(text, user_name)
     except Exception as e:
-        return await message.channel.send(e)
+        print(f"Text processing error: {e}")
+        return await message.channel.send(f"読み上げエラー: {e}")
 
-    if not message.guild.voice_client:
+    # Ensure voice connection is healthy
+    voice_client = await ensure_voice_connection(message.guild, message.channel.id)
+    if not voice_client:
+        print("Failed to establish voice connection")
         return await bot.process_commands(message)
 
-    enqueue(message.guild.voice_client, message.guild,
-            discord.FFmpegPCMAudio(filename), filename)
-    # timer = Timer(3, os.remove, (filename, ))
-    # timer.start()
-    # os.remove(filename)
+    try:
+        enqueue(voice_client, message.guild,
+                discord.FFmpegPCMAudio(filename), filename)
+    except Exception as e:
+        print(f"Audio enqueue error: {e}")
+        # Clean up file if enqueue fails
+        if os.path.exists(filename):
+            os.remove(filename)
+        return await message.channel.send("音声の再生に失敗しました")
+    
     # コマンド側へメッセージ内容を渡す
     await bot.process_commands(message)
 
@@ -353,13 +441,19 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
     else:
         username=member.display_name
     if not before.channel and after.channel:
-        filename = await jtalk(username +"さんこんにちは！")
-        enqueue(member.guild.voice_client, member.guild,
-                discord.FFmpegPCMAudio(filename), filename)
+        try:
+            filename = await jtalk(username +"さんこんにちは！")
+            enqueue(member.guild.voice_client, member.guild,
+                    discord.FFmpegPCMAudio(filename), filename)
+        except Exception as e:
+            print(f"Failed to play greeting: {e}")
     if before.channel and not after.channel:
-        filename = await jtalk(username + "さんが退出しました")
-        enqueue(member.guild.voice_client, member.guild,
-                discord.FFmpegPCMAudio(filename), filename)
+        try:
+            filename = await jtalk(username + "さんが退出しました")
+            enqueue(member.guild.voice_client, member.guild,
+                    discord.FFmpegPCMAudio(filename), filename)
+        except Exception as e:
+            print(f"Failed to play farewell: {e}")
     allbot = True    
     selfcheck = False
     for mem in before.channel.members:
@@ -376,10 +470,38 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
             await client.disconnect()
             await before.channel.send('ボイスチャンネルからログアウトしました')
 
+def cleanup_processes():
+    """Clean up any remaining OpenJTalk processes on exit"""
+    with cleanup_lock:
+        for process in list(active_processes):
+            try:
+                if process.poll() is None:
+                    process.terminate()
+                    process.wait(timeout=5)
+            except:
+                try:
+                    process.kill()
+                except:
+                    pass
+        active_processes.clear()
+
+
+# Register cleanup handlers
+atexit.register(cleanup_processes)
+signal.signal(signal.SIGTERM, lambda signum, frame: cleanup_processes())
+signal.signal(signal.SIGINT, lambda signum, frame: cleanup_processes())
+
+
 async def main():
     # start the client
-    async with bot:
+    try:
+        async with bot:
+            await bot.start(client_id)
+    except Exception as e:
+        print(f"Bot startup failed: {e}")
+    finally:
+        cleanup_processes()
 
-        await bot.start(client_id)
 
-asyncio.run(main())
+if __name__ == "__main__":
+    asyncio.run(main())
