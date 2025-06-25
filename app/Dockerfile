@@ -2,11 +2,11 @@ FROM ubuntu:22.04
 USER root
 
 # Set environment variables
-ENV LANG ja_JP.UTF-8
-ENV LANGUAGE ja_JP:ja
-ENV LC_ALL ja_JP.UTF-8
-ENV TZ JST-9
-ENV TERM xterm
+ENV LANG=ja_JP.UTF-8
+ENV LANGUAGE=ja_JP:ja
+ENV LC_ALL=ja_JP.UTF-8
+ENV TZ=JST-9
+ENV TERM=xterm
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Update and install system dependencies
@@ -38,7 +38,7 @@ RUN wget http://sourceforge.net/projects/mmdagent/files/MMDAgent_Example/MMDAgen
 # Install Python 3.12
 RUN add-apt-repository ppa:deadsnakes/ppa \
     && apt-get update \
-    && apt-get install -y python3.12 python3.12-venv python3.12-dev python3.12-distutils \
+    && apt-get install -y python3.12 python3.12-venv python3.12-dev \
     && rm -rf /var/lib/apt/lists/*
 
 # Install uv
