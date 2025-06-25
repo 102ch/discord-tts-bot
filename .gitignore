@@ -4,3 +4,14 @@ configdb/*
 dict.*
 *.wav
 .DS_Store
+
+# uv
+.uv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
