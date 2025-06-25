@@ -41,9 +41,9 @@ RUN add-apt-repository ppa:deadsnakes/ppa \
     && apt-get install -y python3.12 python3.12-venv python3.12-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv using pip and add to PATH
-RUN python3.12 -m pip install uv
-ENV PATH="/root/.local/bin:$PATH"
+# Install uv using official installer
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+ENV PATH="/root/.cargo/bin:$PATH"
 
 # Create working directory
 RUN mkdir -p /root/src
