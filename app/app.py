@@ -5,6 +5,7 @@ import os
 import re
 import subprocess
 import time
+import json
 from threading import Timer
 from collections import defaultdict, deque
 import asyncio
@@ -13,13 +14,30 @@ import atexit
 import signal
 import threading
 
+# Redis and Celery imports
+import redis
+from celery import Celery
+
 # from dotenv import load_dotenv
 # load_dotenv()
 
+# Redis クライアント設定
+redis_client = redis.from_url(os.getenv('REDIS_URL', 'redis://localhost:6379/0'))
+
+# Celery クライアント設定
+celery_app = Celery('discord_bot')
+celery_app.config_from_object({
+    'broker_url': os.getenv('REDIS_URL', 'redis://localhost:6379/0'),
+})
+
+# レガシーサポート用（段階的移行）
 queue_dict = defaultdict(deque)
 connecting_channels = set()
 active_processes = set()
 cleanup_lock = threading.Lock()
+
+# 音声キューモニタリング状態
+queue_monitors = {}
 
 dictID = int(os.environ['DICT_CH_ID'])
 dictMsg = None
@@ -62,15 +80,40 @@ def current_milli_time() -> int:
     return round(time.time() * 1000)
 
 
-async def addDict(arg1: str, arg2: str):
+async def addDict(arg1: str, arg2: str, guild_id: int = None):
+    """辞書にエントリを追加（Redis + レガシー対応）"""
     global dictMsg
+    
+    # Redis に保存
+    if guild_id:
+        dict_key = f"dict:{guild_id}"
+        dict_data = redis_client.hget(dict_key, "entries")
+        entries = json.loads(dict_data) if dict_data else {}
+        entries[arg1] = arg2
+        redis_client.hset(dict_key, "entries", json.dumps(entries))
+    
+    # レガシー対応
     msg = dictMsg.content + '\n' + arg1 + ',' + arg2
     dictMsg = await dictMsg.edit(content=msg)
     print(msg)
 
 
-def showDict() -> str:
+def showDict(guild_id: int = None) -> str:
+    """辞書一覧表示（Redis + レガシー対応）"""
     global dictMsg
+    
+    # Redis から取得を試行
+    if guild_id:
+        dict_key = f"dict:{guild_id}"
+        dict_data = redis_client.hget(dict_key, "entries")
+        if dict_data:
+            entries = json.loads(dict_data)
+            output = "現在登録されている辞書一覧\n"
+            for index, (key, value) in enumerate(entries.items(), 1):
+                output += f"{index}: {key} -> {value}\n"
+            return output
+    
+    # レガシー対応
     msg = dictMsg.content
     lines = msg.splitlines()
     print(lines)
@@ -78,14 +121,32 @@ def showDict() -> str:
     for index, line in enumerate(lines):
         if index:
             pattern = line.strip().split(',')
-            output += "{0}: {1} -> {2}\n".format(index, pattern[0], pattern[1])
+            if len(pattern) >= 2:
+                output += "{0}: {1} -> {2}\n".format(index, pattern[0], pattern[1])
     return output
 
 
-async def removeDict(num: int) -> bool:
+async def removeDict(num: int, guild_id: int = None) -> bool:
+    """辞書エントリ削除（Redis + レガシー対応）"""
     if num <= 0:
         return True
+    
     global dictMsg
+    
+    # Redis から削除を試行
+    if guild_id:
+        dict_key = f"dict:{guild_id}"
+        dict_data = redis_client.hget(dict_key, "entries")
+        if dict_data:
+            entries = json.loads(dict_data)
+            entries_list = list(entries.items())
+            if 1 <= num <= len(entries_list):
+                key_to_remove = entries_list[num - 1][0]
+                del entries[key_to_remove]
+                redis_client.hset(dict_key, "entries", json.dumps(entries))
+                return True
+    
+    # レガシー対応
     msg = dictMsg.content
     lines = msg.splitlines()
     output = []
@@ -96,13 +157,27 @@ async def removeDict(num: int) -> bool:
     return True
 
 
-def replaceDict(text: str) -> str:
+def replaceDict(text: str, guild_id: int = None) -> str:
+    """辞書置換処理（Redis + レガシー対応）"""
     global dictMsg
+    
+    # Redis から置換を試行
+    if guild_id:
+        dict_key = f"dict:{guild_id}"
+        dict_data = redis_client.hget(dict_key, "entries")
+        if dict_data:
+            entries = json.loads(dict_data)
+            for pattern, replacement in entries.items():
+                if pattern in text:
+                    text = text.replace(pattern, replacement)
+            return text
+    
+    # レガシー対応
     msg = dictMsg.content
     lines = msg.splitlines()
     for line in lines:
         pattern = line.strip().split(',')
-        if pattern[0] in text and len(pattern) >= 2:
+        if len(pattern) >= 2 and pattern[0] in text:
             text = text.replace(pattern[0], pattern[1])
     return text
 
@@ -203,7 +278,8 @@ async def ensure_voice_connection(guild: discord.Guild, channel_id: int) -> disc
         return None
 
 
-async def text_check(text: str, user_name: str) -> tuple[str, str]:
+async def text_check(text: str, user_name: str, guild_id: int = None) -> str:
+    """テキストの前処理（TTS生成前の準備）"""
     print(text)
     if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
@@ -213,21 +289,96 @@ async def text_check(text: str, user_name: str) -> tuple[str, str]:
         text = await replaceUserName(text)
     
     text = re.sub('http.*', '', text)
-    text = replaceDict(text)
+    text = replaceDict(text, guild_id)
     text = user_name + text
     if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
     
+    return text
+
+async def submit_tts_task(text: str, user_name: str, guild_id: int, channel_id: int) -> str:
+    """TTS生成タスクをワーカーに送信"""
+    task_id = str(uuid.uuid4())
+    
     try:
-        filename = await jtalk(text)
-        if os.path.getsize(filename) > 10000000:
+        # テキストの前処理
+        processed_text = await text_check(text, user_name, guild_id)
+        
+        # Celeryタスクとして非同期実行
+        celery_app.send_task(
+            'tts_worker.generate_tts_task',
+            args=[task_id, processed_text, user_name, guild_id, channel_id],
+            queue='tts_queue'
+        )
+        
+        print(f"TTS task submitted: {task_id} for guild {guild_id}")
+        return task_id
+        
+    except Exception as e:
+        print(f"Failed to submit TTS task: {e}")
+        raise e
+
+async def start_audio_queue_monitor(guild_id: int, channel_id: int):
+    """音声キューの監視を開始"""
+    if guild_id in queue_monitors:
+        return  # 既に監視中
+    
+    queue_monitors[guild_id] = True
+    
+    try:
+        while queue_monitors.get(guild_id, False):
+            try:
+                # Redisから次の音声タスクを取得（ブロッキング）
+                result = redis_client.brpop(f"audio:queue:{guild_id}", timeout=1)
+                
+                if result:
+                    task_id = result[1].decode()
+                    await process_audio_task(task_id, guild_id, channel_id)
+                    
+            except redis.exceptions.ConnectionError:
+                print(f"Redis connection error for guild {guild_id}")
+                await asyncio.sleep(5)
+            except Exception as e:
+                print(f"Audio queue monitor error for guild {guild_id}: {e}")
+                await asyncio.sleep(1)
+                
+    finally:
+        queue_monitors.pop(guild_id, None)
+
+async def process_audio_task(task_id: str, guild_id: int, channel_id: int):
+    """生成された音声を再生キューに追加"""
+    try:
+        # 音声情報をRedisから取得
+        audio_data = redis_client.get(f"audio:{task_id}")
+        if not audio_data:
+            print(f"Audio data not found for task {task_id}")
+            return
+        
+        audio_info = json.loads(audio_data)
+        filename = audio_info['filename']
+        
+        # ファイルの存在確認
+        if not os.path.exists(filename):
+            print(f"Audio file not found: {filename}")
+            return
+        
+        # ボイスクライアントを取得
+        voice_client = get_voice_client(channel_id)
+        if not voice_client:
+            print(f"Voice client not found for channel {channel_id}")
+            # ファイルをクリーンアップ
             if os.path.exists(filename):
                 os.remove(filename)
-            raise Exception("再生時間が長すぎるよ")
-        return text, filename
+            return
+        
+        # 音声を再生キューに追加
+        enqueue(voice_client, await bot.fetch_guild(guild_id), 
+               discord.FFmpegPCMAudio(filename), filename)
+        
+        print(f"Audio queued for playback: {task_id}")
+        
     except Exception as e:
-        print(f"TTS generation failed: {e}")
-        raise e
+        print(f"Failed to process audio task {task_id}: {e}")
 
 
 client_id = os.environ['DISCORD_CLIENT_ID']
@@ -304,9 +455,18 @@ async def dc(interaction: discord.Interaction):
     if client:
         global currentChannel
         currentChannel = None
-        # キューをクリアして蓄積されたメッセージを削除
-        if interaction.guild.id in queue_dict:
-            queue_dict[interaction.guild.id].clear()
+        guild_id = interaction.guild.id
+        
+        # 音声キューモニタリングを停止
+        queue_monitors.pop(guild_id, None)
+        
+        # Redis キューをクリア
+        redis_client.delete(f"audio:queue:{guild_id}")
+        
+        # レガシーキューもクリア
+        if guild_id in queue_dict:
+            queue_dict[guild_id].clear()
+            
         await client.disconnect()
         await interaction.followup.send('ボイスチャンネルからログアウトしました')
     else:
@@ -345,22 +505,22 @@ async def bye(interaction: discord.Interaction):
 
 @tree.command(name="get", description="辞書の内容を取得するよ")
 async def get(interaction: discord.Interaction):
-    await interaction.response.send_message(showDict())
+    await interaction.response.send_message(showDict(interaction.guild_id))
 
 
 @tree.command(name="add", description="辞書に新しい単語を登録するよ")
 @discord.app_commands.describe(arg1="置換前の単語を入れてね", arg2="置換後の単語を入れてね")
 async def add(interaction: discord.Interaction, arg1: str, arg2: str):
     if len(arg1) > 10 or len(arg2) > 10:
-        return await interaction.response.send_message("荒らしは許されませんよ♡\n置換する単語は10文字儼にしてね")
-    await addDict(arg1, arg2)
+        return await interaction.response.send_message("荒らしは許されませんよ♡\n置換する単語は10文字以内にしてね")
+    await addDict(arg1, arg2, interaction.guild_id)
     await interaction.response.send_message(f"{arg1}を{arg2}と読むように辞書に登録しました！")
 
 
 @tree.command(name="remove", description="辞書の単語を削除するよ")
 @discord.app_commands.describe(num="削除する単語の番号を入れてね")
 async def remove(interaction: discord.Interaction, num: int):
-    if await removeDict(num):
+    if await removeDict(num, interaction.guild_id):
         await interaction.response.send_message("削除しました")
     else:
         await interaction.response.send_message("エラーが発生しました")
@@ -369,15 +529,35 @@ async def remove(interaction: discord.Interaction, num: int):
 @discord.app_commands.describe(name="あなたの呼び方を入れてね")
 async def rename(interaction: discord.Interaction, name: str=None):
     if not name:
-        if interaction.user.id in userNicknameDict:
-            nickname=userNicknameDict[interaction.user.id]
+        nickname = get_user_nickname(interaction.user.id, interaction.guild_id)
+        if nickname:
             return await interaction.response.send_message(f"あなたの呼び方は{nickname}だよ")
         else:
             return await interaction.response.send_message(f"あなたの呼び方はまだ設定されてないよ")
     if len(name) > 10:
-        return await interaction.response.send_message("荒らしは許されませんよ♡\n呼び方は10文字儼にしてね")
-    userNicknameDict[interaction.user.id] = name
+        return await interaction.response.send_message("荒らしは許されませんよ♡\n呼び方は10文字以内にしてね")
+    set_user_nickname(interaction.user.id, name, interaction.guild_id)
     await interaction.response.send_message(f"あなたの呼び方を{name}に変えたよ")
+
+def get_user_nickname(user_id: int, guild_id: int = None) -> str | None:
+    """ユーザーニックネームを取得（Redis + レガシー対応）"""
+    # Redis から取得を試行
+    if guild_id:
+        nickname = redis_client.hget(f"user:nickname:{guild_id}", str(user_id))
+        if nickname:
+            return nickname.decode()
+    
+    # レガシー対応
+    return userNicknameDict.get(user_id)
+
+def set_user_nickname(user_id: int, nickname: str, guild_id: int = None):
+    """ユーザーニックネームを設定（Redis + レガシー対応）"""
+    # Redis に保存
+    if guild_id:
+        redis_client.hset(f"user:nickname:{guild_id}", str(user_id), nickname)
+    
+    # レガシー対応
+    userNicknameDict[user_id] = nickname
 
 @bot.event
 async def on_message(message: discord.Message):
@@ -399,16 +579,23 @@ async def on_message(message: discord.Message):
         volume = source.volume
 
     text = message.content
+    guild_id = message.guild.id
+    channel_id = message.channel.id
 
-    if message.author.id in userNicknameDict:
-        user_name=userNicknameDict[message.author.id]
-    else:
-        user_name=message.author.display_name
+    # ユーザーニックネーム取得
+    user_name = get_user_nickname(message.author.id, guild_id)
+    if not user_name:
+        user_name = message.author.display_name
     
     try:
-        text, filename = await text_check(text, user_name)
+        # TTS生成タスクを非同期で送信
+        task_id = await submit_tts_task(text, user_name, guild_id, channel_id)
+        
+        # 音声キューモニタリングを開始（既に開始済みの場合は何もしない）
+        asyncio.create_task(start_audio_queue_monitor(guild_id, channel_id))
+        
     except Exception as e:
-        print(f"Text processing error: {e}")
+        print(f"TTS task submission error: {e}")
         return await message.channel.send(f"読み上げエラー: {e}")
 
     # Ensure voice connection is healthy
@@ -416,16 +603,6 @@ async def on_message(message: discord.Message):
     if not voice_client:
         print("Failed to establish voice connection")
         return await bot.process_commands(message)
-
-    try:
-        enqueue(voice_client, message.guild,
-                discord.FFmpegPCMAudio(filename), filename)
-    except Exception as e:
-        print(f"Audio enqueue error: {e}")
-        # Clean up file if enqueue fails
-        if os.path.exists(filename):
-            os.remove(filename)
-        return await message.channel.send("音声の再生に失敗しました")
     
     # コマンド側へメッセージ内容を渡す
     await bot.process_commands(message)
@@ -436,39 +613,53 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
     global currentChannel
     if currentChannel is None:
         return
-    if member.id in userNicknameDict:
-        username=userNicknameDict[member.id]
-    else:
-        username=member.display_name
+    
+    guild_id = member.guild.id
+    username = get_user_nickname(member.id, guild_id)
+    if not username:
+        username = member.display_name
+        
     if not before.channel and after.channel:
         try:
-            filename = await jtalk(username +"さんこんにちは！")
-            enqueue(member.guild.voice_client, member.guild,
-                    discord.FFmpegPCMAudio(filename), filename)
+            # 挨拶メッセージをTTSタスクとして送信
+            greeting_text = username + "さんこんにちは！"
+            await submit_tts_task(greeting_text, "", guild_id, currentChannel)
         except Exception as e:
-            print(f"Failed to play greeting: {e}")
+            print(f"Failed to submit greeting TTS: {e}")
+            
     if before.channel and not after.channel:
         try:
-            filename = await jtalk(username + "さんが退出しました")
-            enqueue(member.guild.voice_client, member.guild,
-                    discord.FFmpegPCMAudio(filename), filename)
+            # 退出メッセージをTTSタスクとして送信
+            farewell_text = username + "さんが退出しました"
+            await submit_tts_task(farewell_text, "", guild_id, currentChannel)
         except Exception as e:
-            print(f"Failed to play farewell: {e}")
-    allbot = True    
-    selfcheck = False
-    for mem in before.channel.members:
-        if mem.id == bot.user.id:
-            selfcheck = True
-        if  not mem.bot:
-            allbot = False
-    if before.channel and allbot and selfcheck:
-        client = member.guild.voice_client
-        if client:
-            # 自動退出時もキューをクリア
-            if member.guild.id in queue_dict:
-                queue_dict[member.guild.id].clear()
-            await client.disconnect()
-            await before.channel.send('ボイスチャンネルからログアウトしました')
+            print(f"Failed to submit farewell TTS: {e}")
+            
+    # ボットだけが残った場合の自動退出処理
+    if before.channel:
+        allbot = True    
+        selfcheck = False
+        for mem in before.channel.members:
+            if mem.id == bot.user.id:
+                selfcheck = True
+            if not mem.bot:
+                allbot = False
+                
+        if allbot and selfcheck:
+            client = member.guild.voice_client
+            if client:
+                # 音声キューモニタリングを停止
+                queue_monitors.pop(guild_id, None)
+                
+                # Redis キューをクリア
+                redis_client.delete(f"audio:queue:{guild_id}")
+                
+                # レガシーキューもクリア
+                if guild_id in queue_dict:
+                    queue_dict[guild_id].clear()
+                    
+                await client.disconnect()
+                await before.channel.send('ボイスチャンネルからログアウトしました')
 
 def cleanup_processes():
     """Clean up any remaining OpenJTalk processes on exit"""

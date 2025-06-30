@@ -1,6 +1,15 @@
 version: "3.1"
 
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+
   app:
     build: ./app
     tty: true
@@ -8,5 +17,37 @@ services:
       - DISCORD_CLIENT_ID=${DISCORD_CLIENT_ID}
       - DISCORD_APP_ID=${DISCORD_APP_ID}
       - DICT_CH_ID=${DICT_CH_ID}
+      - REDIS_URL=redis://redis:6379/0
     volumes:
       - ./app:/root/src
+      - shared_audio:/tmp/audio
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  celery_worker:
+    build: ./app
+    command: celery -A tts_worker worker --loglevel=info --concurrency=4 --queues=tts_queue
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./app:/root/src
+      - shared_audio:/tmp/audio
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  celery_beat:
+    build: ./app
+    command: celery -A tts_worker beat --loglevel=info
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./app:/root/src
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+volumes:
+  redis_data:
+  shared_audio:
