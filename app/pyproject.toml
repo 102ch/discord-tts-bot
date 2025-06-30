@@ -6,6 +6,9 @@ requires-python = ">=3.8,<3.13"
 dependencies = [
     "discord.py[voice]==2.3.2",
     "pydub",
+    "redis>=4.5.0",
+    "celery>=5.3.0",
+    "redis[hiredis]",
 ]
 
 [build-system]
