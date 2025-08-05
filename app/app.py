@@ -343,6 +343,13 @@ async def bye(interaction: discord.Interaction):
     await bot.close()
 
 
+@tree.command(name="kill", description="ボットプロセスを強制終了します")
+async def kill(interaction: discord.Interaction):
+    await interaction.response.send_message("ボットプロセスを強制終了します。")
+    cleanup_processes()
+    os._exit(1)
+
+
 @tree.command(name="get", description="辞書の内容を取得するよ")
 async def get(interaction: discord.Interaction):
     await interaction.response.send_message(showDict())
