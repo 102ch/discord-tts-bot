@@ -26,14 +26,21 @@ dictMsg = None
 
 userNicknameDict:dict[int,str] = dict ()
 
-def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, filename: str):
-    # ボイスクライアントが存在しない場合は、キューに追加せずに終了
-    if not voice_client:
+def enqueue(voice_client: discord.VoiceClient, guild: discord.Guild, source, filename: str):
+    # ボイスクライアントが存在しない、または接続されていない場合は、キューに追加せずに終了
+    if not voice_client or not voice_client.is_connected():
+        print("Voice client is not available or not connected. Skipping enqueue.")
+        # Clean up the audio file
+        try:
+            if os.path.exists(filename):
+                os.remove(filename)
+        except Exception as e:
+            print(f"Failed to remove audio file {filename}: {e}")
         return
-    
+
     queue = queue_dict[guild.id]
     queue.append([source, filename])
-    
+
     if not voice_client.is_playing():
         play(voice_client, queue)
 
@@ -41,8 +48,22 @@ def enqueue(voice_client: discord.VoiceClient, guild: discord.guild, source, fil
 def play(voice_client: discord.VoiceClient, queue: deque):
     if not queue or voice_client.is_playing():
         return
+
+    # Check if voice client is still connected
+    if not voice_client.is_connected():
+        print("Voice client is not connected. Clearing queue.")
+        # Clean up all pending audio files
+        while queue:
+            _, filename = queue.popleft()
+            try:
+                if os.path.exists(filename):
+                    os.remove(filename)
+            except Exception as e:
+                print(f"Failed to remove audio file {filename}: {e}")
+        return
+
     source = queue.popleft()
-    
+
     def after_play(error):
         if error:
             print(f"Player error: {error}")
@@ -54,8 +75,19 @@ def play(voice_client: discord.VoiceClient, queue: deque):
             print(f"Failed to remove audio file {source[1]}: {e}")
         # Continue playing next item in queue
         play(voice_client, queue)
-    
-    voice_client.play(source[0], after=after_play)
+
+    try:
+        voice_client.play(source[0], after=after_play)
+    except Exception as e:
+        print(f"Failed to play audio: {e}")
+        # Clean up the file even if play fails
+        try:
+            if os.path.exists(source[1]):
+                os.remove(source[1])
+        except Exception as cleanup_error:
+            print(f"Failed to remove audio file {source[1]}: {cleanup_error}")
+        # Try to play next item in queue
+        play(voice_client, queue)
 
 
 def current_milli_time() -> int:
