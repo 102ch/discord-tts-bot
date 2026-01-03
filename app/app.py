@@ -351,7 +351,9 @@ async def join(interaction: discord.Interaction):
     try:
         global currentChannel
         currentChannel = interaction.channel_id
-        await voice_channel.connect()
+        print(f"Attempting to connect to voice channel with timeout=60s...")
+        # Increase timeout for Kubernetes environments with slower networking
+        await voice_channel.connect(timeout=60.0, reconnect=True)
         print(f"Successfully connected to voice channel {voice_channel.name}")
     except Exception as e:
         connecting_channels.remove(interaction.channel_id)
