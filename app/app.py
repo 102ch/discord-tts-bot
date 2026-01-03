@@ -243,7 +243,9 @@ async def text_check(text: str, user_name: str) -> tuple[str, str]:
         text = replaceStamp(text)
     if mention.search(text):
         text = await replaceUserName(text)
-    
+
+    # 改行を句点に置き換え
+    text = text.replace('\n', '。')
     text = re.sub('http.*', '', text)
     text = replaceDict(text)
     text = user_name + text
