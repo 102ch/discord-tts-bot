@@ -338,15 +338,26 @@ async def f(interaction:discord.Interaction):
 @tree.command(name="join", description="ボイスチャンネルに参加するよ")
 async def join(interaction: discord.Interaction):
     await interaction.response.defer()
-    print(f"join:{interaction.channel}")
+
+    # Check if user is in a voice channel
+    if not interaction.user.voice or not interaction.user.voice.channel:
+        await interaction.followup.send('先にボイスチャンネルに参加してください')
+        return
+
+    voice_channel = interaction.user.voice.channel
+    print(f"join: User is in voice channel {voice_channel.name} (ID: {voice_channel.id})")
     connecting_channels.add(interaction.channel_id)
-    await interaction.followup.send('ボイスチャンネルに参加します')
+    await interaction.followup.send(f'ボイスチャンネル「{voice_channel.name}」に参加します')
     try:
         global currentChannel
         currentChannel = interaction.channel_id
-        await interaction.channel.connect()
+        await voice_channel.connect()
+        print(f"Successfully connected to voice channel {voice_channel.name}")
     except Exception as e:
         connecting_channels.remove(interaction.channel_id)
+        print(f"Failed to join voice channel: {e}")
+        import traceback
+        traceback.print_exc()
         await interaction.followup.send(f"参加中に異常が発生しました\n```{e}```")
 
 
