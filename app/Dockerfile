@@ -58,4 +58,5 @@ RUN uv sync --python 3.12
 
 # Run the application using the virtual environment directly
 # This avoids re-syncing on every container start
-CMD [".venv/bin/python", "app.py"]
+# Use -u flag for unbuffered output to see errors immediately in container logs
+CMD [".venv/bin/python", "-u", "app.py"]

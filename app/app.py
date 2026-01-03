@@ -21,7 +21,17 @@ connecting_channels = set()
 active_processes = set()
 cleanup_lock = threading.Lock()
 
-dictID = int(os.environ['DICT_CH_ID'])
+# Validate required environment variables
+required_env_vars = ['DICT_CH_ID', 'DISCORD_CLIENT_ID', 'DISCORD_APP_ID']
+missing_vars = [var for var in required_env_vars if var not in os.environ]
+if missing_vars:
+    raise EnvironmentError(f"Missing required environment variables: {', '.join(missing_vars)}")
+
+try:
+    dictID = int(os.environ['DICT_CH_ID'])
+except ValueError as e:
+    raise ValueError(f"DICT_CH_ID must be a valid integer: {os.environ['DICT_CH_ID']}") from e
+
 dictMsg = None
 
 userNicknameDict:dict[int,str] = dict ()
@@ -288,17 +298,28 @@ stamp = re.compile('<:([^:]*):.*>')
 @bot.event
 async def on_ready():
     # 起動時の処理
+    print(f"Bot logged in as {bot.user} (ID: {bot.user.id})")
 
     global dictMsg
-    channel = bot.get_channel(dictID)
-    print(channel)
-    async for message in channel.history(limit=1):
-        if message.author == bot.user:
-            dictMsg = message
-        else:
-            dictMsg = await channel.send('文字列,文字列')
-    await tree.sync()
-    print('Bot is wake up. hi bro.')
+    try:
+        channel = bot.get_channel(dictID)
+        if channel is None:
+            raise Exception(f"Dictionary channel with ID {dictID} not found. Please check DICT_CH_ID environment variable.")
+        print(f"Found dictionary channel: {channel.name} (ID: {channel.id})")
+
+        async for message in channel.history(limit=1):
+            if message.author == bot.user:
+                dictMsg = message
+            else:
+                dictMsg = await channel.send('文字列,文字列')
+
+        await tree.sync()
+        print('Bot is wake up. hi bro.')
+    except Exception as e:
+        print(f"FATAL ERROR during startup: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
 
 """おてほん
 @tree.command(name="コマンド名",description="説明")
@@ -559,10 +580,17 @@ signal.signal(signal.SIGINT, lambda signum, frame: cleanup_all())
 async def main():
     # start the client
     try:
+        print("Starting Discord bot...")
+        print(f"Client ID: {client_id[:10]}..." if len(client_id) > 10 else "Client ID: [too short]")
+        print(f"Application ID: {application_id}")
+        print(f"Dictionary Channel ID: {dictID}")
         async with bot:
             await bot.start(client_id)
     except Exception as e:
         print(f"Bot startup failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise
     finally:
         await cleanup_voice_clients()
         cleanup_processes()
