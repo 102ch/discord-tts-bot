@@ -378,7 +378,7 @@ async def bye(interaction: discord.Interaction):
 @tree.command(name="kill", description="ボットプロセスを強制終了します")
 async def kill(interaction: discord.Interaction):
     await interaction.response.send_message("ボットプロセスを強制終了します。")
-    cleanup_processes()
+    cleanup_all()
     os._exit(1)
 
 
@@ -509,6 +509,15 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
             await client.disconnect()
             await before.channel.send('ボイスチャンネルからログアウトしました')
 
+async def cleanup_voice_clients():
+    """Clean up all voice client connections"""
+    for voice_client in bot.voice_clients:
+        try:
+            if voice_client.is_connected():
+                await voice_client.disconnect(force=True)
+        except Exception as e:
+            print(f"Error disconnecting voice client: {e}")
+
 def cleanup_processes():
     """Clean up any remaining OpenJTalk processes on exit"""
     with cleanup_lock:
@@ -524,11 +533,25 @@ def cleanup_processes():
                     pass
         active_processes.clear()
 
+def cleanup_all():
+    """Clean up everything before shutdown"""
+    # Clean up voice clients (run in the event loop if possible)
+    try:
+        if bot.loop and bot.loop.is_running():
+            asyncio.run_coroutine_threadsafe(cleanup_voice_clients(), bot.loop).result(timeout=5)
+        elif bot.loop:
+            bot.loop.run_until_complete(cleanup_voice_clients())
+    except Exception as e:
+        print(f"Error during voice client cleanup: {e}")
+
+    # Clean up processes
+    cleanup_processes()
+
 
 # Register cleanup handlers
-atexit.register(cleanup_processes)
-signal.signal(signal.SIGTERM, lambda signum, frame: cleanup_processes())
-signal.signal(signal.SIGINT, lambda signum, frame: cleanup_processes())
+atexit.register(cleanup_all)
+signal.signal(signal.SIGTERM, lambda signum, frame: cleanup_all())
+signal.signal(signal.SIGINT, lambda signum, frame: cleanup_all())
 
 
 async def main():
@@ -539,6 +562,7 @@ async def main():
     except Exception as e:
         print(f"Bot startup failed: {e}")
     finally:
+        await cleanup_voice_clients()
         cleanup_processes()
 
 

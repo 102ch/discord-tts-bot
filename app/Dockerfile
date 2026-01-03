@@ -49,14 +49,13 @@ ENV PATH="/root/.local/bin:$PATH"
 RUN mkdir -p /root/src
 WORKDIR /root/src
 
-# Copy project files
+# Copy project files and application code
 COPY pyproject.toml ./
+COPY . .
 
 # Install dependencies using uv with Python 3.12
 RUN uv sync --python 3.12
 
-# Copy application code
-COPY . .
-
-# Run the application
-CMD ["uv", "run", "--python", "3.12", "python3", "app.py"]
+# Run the application using the virtual environment directly
+# This avoids re-syncing on every container start
+CMD [".venv/bin/python", "app.py"]
