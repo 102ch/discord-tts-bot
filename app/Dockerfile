@@ -15,6 +15,8 @@ RUN apt-get update && apt-get install -y \
     vim \
     less \
     ffmpeg \
+    libopus0 \
+    libsodium23 \
     mecab \
     open-jtalk \
     open-jtalk-mecab-naist-jdic \
