@@ -346,6 +346,51 @@ async def f(interaction:discord.Interaction):
 """
 
 
+async def connect_with_retry(voice_channel, max_attempts=3, timeout_per_attempt=10.0):
+    """
+    Try to connect to voice channel with retry logic.
+    Returns: VoiceClient if successful, None otherwise
+    """
+    for attempt in range(1, max_attempts + 1):
+        try:
+            print(f"Connection attempt {attempt}/{max_attempts} (timeout={timeout_per_attempt}s)...")
+
+            # Use shorter timeout for each attempt to fail fast
+            vc = await asyncio.wait_for(
+                voice_channel.connect(timeout=timeout_per_attempt, reconnect=False),
+                timeout=timeout_per_attempt + 2.0
+            )
+
+            # Verify connection
+            if vc and vc.is_connected():
+                print(f"Connection successful on attempt {attempt}")
+                return vc
+            else:
+                print(f"Connection returned but not connected on attempt {attempt}")
+                if vc:
+                    try:
+                        await vc.disconnect(force=True)
+                    except:
+                        pass
+
+        except asyncio.TimeoutError:
+            print(f"Attempt {attempt} timed out after {timeout_per_attempt}s")
+            if attempt < max_attempts:
+                wait_time = min(2 ** attempt, 5)  # Exponential backoff, max 5s
+                print(f"Waiting {wait_time}s before retry...")
+                await asyncio.sleep(wait_time)
+        except Exception as e:
+            print(f"Attempt {attempt} failed: {type(e).__name__}: {str(e)}")
+            if attempt < max_attempts:
+                wait_time = min(2 ** attempt, 5)
+                print(f"Waiting {wait_time}s before retry...")
+                await asyncio.sleep(wait_time)
+            else:
+                raise
+
+    raise Exception(f"Failed to connect after {max_attempts} attempts")
+
+
 @tree.command(name="join", description="ボイスチャンネルに参加するよ")
 async def join(interaction: discord.Interaction):
     await interaction.response.defer()
@@ -369,31 +414,50 @@ async def join(interaction: discord.Interaction):
             print(f"Disconnecting from existing voice channel: {existing_vc.channel.name}")
             try:
                 await existing_vc.disconnect(force=True)
-                await asyncio.sleep(1)  # Wait a bit before reconnecting
+                await asyncio.sleep(1)
             except Exception as e:
                 print(f"Error disconnecting from existing channel: {e}")
 
     connecting_channels.add(interaction.channel_id)
-    await interaction.followup.send(f'ボイスチャンネル「{voice_channel.name}」に参加します')
+    await interaction.followup.send(f'ボイスチャンネル「{voice_channel.name}」に接続を試みています...')
+
     try:
         global currentChannel
-        currentChannel = interaction.channel_id
-        print(f"Attempting to connect to voice channel with timeout=60s...")
         print(f"Opus loaded: {discord.opus.is_loaded()}")
-        print(f"Voice channel type: {type(voice_channel)}, ID: {voice_channel.id}")
-        # Increase timeout for Kubernetes environments with slower networking
-        await voice_channel.connect(timeout=60.0, reconnect=True)
-        print(f"Successfully connected to voice channel {voice_channel.name}")
-    except asyncio.TimeoutError:
+        print(f"Voice channel: {voice_channel.name} (ID: {voice_channel.id})")
+
+        # Use retry logic with shorter timeouts to fail fast
+        vc = await connect_with_retry(voice_channel, max_attempts=3, timeout_per_attempt=10.0)
+
+        # Set current channel only after successful connection
+        currentChannel = interaction.channel_id
+
+        # Verify guild voice client
+        guild_vc = interaction.guild.voice_client
+        if not guild_vc or not guild_vc.is_connected():
+            raise Exception("Guild voice client not available after connection")
+
+        print(f"Successfully connected to voice channel: {voice_channel.name}")
+        print(f"Voice client status: connected={vc.is_connected()}, latency={vc.latency:.2f}ms")
+        await interaction.followup.send(f'✓ ボイスチャンネル「{voice_channel.name}」に接続しました')
+
+    except asyncio.TimeoutError as e:
         connecting_channels.discard(interaction.channel_id)
-        print(f"Voice connection timed out")
-        await interaction.followup.send("ボイス接続がタイムアウトしました。ネットワーク状況を確認してください。")
-    except Exception as e:
-        connecting_channels.discard(interaction.channel_id)
-        print(f"Failed to join voice channel: {e}")
+        currentChannel = None
+        error_msg = "ボイス接続がタイムアウトしました"
+        print(f"ERROR: {error_msg}")
         import traceback
         traceback.print_exc()
-        await interaction.followup.send(f"参加中に異常が発生しました\n```{e}```")
+        await interaction.followup.send(f"✗ {error_msg}\n\nネットワーク設定を確認してください。\nKubernetes環境の場合、UDPポートが開放されているか確認してください。")
+
+    except Exception as e:
+        connecting_channels.discard(interaction.channel_id)
+        currentChannel = None
+        error_msg = f"{type(e).__name__}: {str(e)}"
+        print(f"ERROR: Failed to connect - {error_msg}")
+        import traceback
+        traceback.print_exc()
+        await interaction.followup.send(f"✗ 接続に失敗しました\n```{error_msg}```\n\nKubernetes環境の場合:\n- UDPポート(50000-65535)が開放されているか確認\n- 外部ネットワークへのアクセスが許可されているか確認")
 
 
 @tree.command(name="dc", description="ボイスチャンネルから退出するよ")
@@ -415,12 +479,25 @@ async def dc(interaction: discord.Interaction):
 
 
 @tree.command(name="status", description="現在のステータスを確認するよ")
-async def f(interaction: discord.Interaction):
+async def status_cmd(interaction: discord.Interaction):
+    voice_client = interaction.guild.voice_client
 
-    if get_voice_client(interaction.channel_id):
-        status = "ボイスチャンネルに接続中だよ"
+    if voice_client and voice_client.is_connected():
+        channel_name = voice_client.channel.name if voice_client.channel else "不明"
+        latency = voice_client.latency if hasattr(voice_client, 'latency') else 0
+        status = (
+            f"✓ ボイスチャンネルに接続中\n"
+            f"チャンネル: {channel_name}\n"
+            f"遅延: {latency:.2f}ms\n"
+            f"再生中: {'はい' if voice_client.is_playing() else 'いいえ'}\n"
+            f"Opus loaded: {'はい' if discord.opus.is_loaded() else 'いいえ'}"
+        )
     else:
-        status = "ボイスチャンネルに接続してないよ"
+        status = (
+            f"✗ ボイスチャンネルに接続していません\n"
+            f"Opus loaded: {'はい' if discord.opus.is_loaded() else 'いいえ'}"
+        )
+
     await interaction.response.send_message(status)
 
 
@@ -578,9 +655,13 @@ async def cleanup_voice_clients():
     for voice_client in bot.voice_clients:
         try:
             if voice_client.is_connected():
+                print(f"Disconnecting voice client from channel: {voice_client.channel.name if voice_client.channel else 'Unknown'}")
                 await voice_client.disconnect(force=True)
+                print(f"Successfully disconnected voice client")
         except Exception as e:
-            print(f"Error disconnecting voice client: {e}")
+            print(f"Error disconnecting voice client: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
 
 def cleanup_processes():
     """Clean up any remaining OpenJTalk processes on exit"""
@@ -599,17 +680,26 @@ def cleanup_processes():
 
 def cleanup_all():
     """Clean up everything before shutdown"""
+    print("Starting cleanup_all()...")
     # Clean up voice clients (run in the event loop if possible)
     try:
         if bot.loop and bot.loop.is_running():
+            print("Event loop is running, scheduling cleanup in event loop...")
             asyncio.run_coroutine_threadsafe(cleanup_voice_clients(), bot.loop).result(timeout=5)
         elif bot.loop:
+            print("Event loop exists but not running, running cleanup directly...")
             bot.loop.run_until_complete(cleanup_voice_clients())
+        else:
+            print("No event loop available, skipping voice client cleanup")
     except Exception as e:
-        print(f"Error during voice client cleanup: {e}")
+        print(f"Error during voice client cleanup: {type(e).__name__}: {str(e)}")
+        import traceback
+        traceback.print_exc()
 
     # Clean up processes
+    print("Cleaning up OpenJTalk processes...")
     cleanup_processes()
+    print("Cleanup complete")
 
 
 # Register cleanup handlers
