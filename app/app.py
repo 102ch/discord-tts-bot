@@ -346,6 +346,22 @@ async def join(interaction: discord.Interaction):
 
     voice_channel = interaction.user.voice.channel
     print(f"join: User is in voice channel {voice_channel.name} (ID: {voice_channel.id})")
+
+    # Check if already connected to a voice channel in this guild
+    existing_vc = interaction.guild.voice_client
+    if existing_vc:
+        if existing_vc.channel.id == voice_channel.id:
+            await interaction.followup.send(f'既にボイスチャンネル「{voice_channel.name}」に参加しています')
+            return
+        else:
+            # Disconnect from current channel first
+            print(f"Disconnecting from existing voice channel: {existing_vc.channel.name}")
+            try:
+                await existing_vc.disconnect(force=True)
+                await asyncio.sleep(1)  # Wait a bit before reconnecting
+            except Exception as e:
+                print(f"Error disconnecting from existing channel: {e}")
+
     connecting_channels.add(interaction.channel_id)
     await interaction.followup.send(f'ボイスチャンネル「{voice_channel.name}」に参加します')
     try:
@@ -355,8 +371,12 @@ async def join(interaction: discord.Interaction):
         # Increase timeout for Kubernetes environments with slower networking
         await voice_channel.connect(timeout=60.0, reconnect=True)
         print(f"Successfully connected to voice channel {voice_channel.name}")
+    except asyncio.TimeoutError:
+        connecting_channels.discard(interaction.channel_id)
+        print(f"Voice connection timed out")
+        await interaction.followup.send("ボイス接続がタイムアウトしました。ネットワーク状況を確認してください。")
     except Exception as e:
-        connecting_channels.remove(interaction.channel_id)
+        connecting_channels.discard(interaction.channel_id)
         print(f"Failed to join voice channel: {e}")
         import traceback
         traceback.print_exc()
