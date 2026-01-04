@@ -16,6 +16,17 @@ import threading
 # from dotenv import load_dotenv
 # load_dotenv()
 
+# Check opus library status
+if discord.opus.is_loaded():
+    print("Opus library is loaded")
+else:
+    print("WARNING: Opus library is NOT loaded, attempting to load...")
+    try:
+        discord.opus.load_opus('libopus.so.0')
+        print("Opus library loaded successfully")
+    except Exception as e:
+        print(f"Failed to load opus: {e}")
+
 queue_dict = defaultdict(deque)
 connecting_channels = set()
 active_processes = set()
@@ -368,6 +379,8 @@ async def join(interaction: discord.Interaction):
         global currentChannel
         currentChannel = interaction.channel_id
         print(f"Attempting to connect to voice channel with timeout=60s...")
+        print(f"Opus loaded: {discord.opus.is_loaded()}")
+        print(f"Voice channel type: {type(voice_channel)}, ID: {voice_channel.id}")
         # Increase timeout for Kubernetes environments with slower networking
         await voice_channel.connect(timeout=60.0, reconnect=True)
         print(f"Successfully connected to voice channel {voice_channel.name}")
