@@ -497,14 +497,15 @@ async def on_message(message: discord.Message):
         return await bot.process_commands(message)
     volume = 0.5
 
-    voice = get_voice_client(message.channel.id)
+    # Use guild's voice client directly instead of looking up by text channel ID
+    voice_client = message.guild.voice_client
 
-    if not voice:
+    if not voice_client or not voice_client.is_connected():
         return await bot.process_commands(message)
 
-    if voice is True and volume is None:
-        source = discord.PCMVolumeTransformer(voice.source)
-        volume = source.volume
+    # Check if the bot is in a voice channel and the message is from the linked text channel
+    if currentChannel != message.channel.id:
+        return await bot.process_commands(message)
 
     text = message.content
 
@@ -512,18 +513,12 @@ async def on_message(message: discord.Message):
         user_name=userNicknameDict[message.author.id]
     else:
         user_name=message.author.display_name
-    
+
     try:
         text, filename = await text_check(text, user_name)
     except Exception as e:
         print(f"Text processing error: {e}")
         return await message.channel.send(f"読み上げエラー: {e}")
-
-    # Ensure voice connection is healthy
-    voice_client = await ensure_voice_connection(message.guild, message.channel.id)
-    if not voice_client:
-        print("Failed to establish voice connection")
-        return await bot.process_commands(message)
 
     try:
         enqueue(voice_client, message.guild,
