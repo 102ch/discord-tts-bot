@@ -346,7 +346,20 @@ async def f(interaction:discord.Interaction):
 """
 
 
-async def connect_with_retry(voice_channel, max_attempts=3, timeout_per_attempt=10.0):
+async def cleanup_stale_voice_client(guild: discord.Guild):
+    """Clean up any stale voice client for the guild before a new connection attempt."""
+    vc = guild.voice_client
+    if vc:
+        print(f"Cleaning up stale voice client (connected={vc.is_connected()})")
+        try:
+            await vc.disconnect(force=True)
+        except Exception as e:
+            print(f"Error during stale voice client cleanup: {e}")
+        # Give Discord a moment to process the disconnect
+        await asyncio.sleep(0.5)
+
+
+async def connect_with_retry(voice_channel, guild, max_attempts=3, timeout_per_attempt=15.0):
     """
     Try to connect to voice channel with retry logic.
     Returns: VoiceClient if successful, None otherwise
@@ -355,13 +368,15 @@ async def connect_with_retry(voice_channel, max_attempts=3, timeout_per_attempt=
         try:
             print(f"Connection attempt {attempt}/{max_attempts} (timeout={timeout_per_attempt}s)...")
 
-            # Use shorter timeout for each attempt to fail fast
+            # Clean up any stale voice client before each attempt
+            await cleanup_stale_voice_client(guild)
+
             vc = await asyncio.wait_for(
-                voice_channel.connect(timeout=timeout_per_attempt, reconnect=False),
-                timeout=timeout_per_attempt + 2.0
+                voice_channel.connect(timeout=timeout_per_attempt, reconnect=True),
+                timeout=timeout_per_attempt + 5.0
             )
 
-            # Verify connection
+            # Verify connection is established
             if vc and vc.is_connected():
                 print(f"Connection successful on attempt {attempt}")
                 return vc
@@ -375,18 +390,17 @@ async def connect_with_retry(voice_channel, max_attempts=3, timeout_per_attempt=
 
         except asyncio.TimeoutError:
             print(f"Attempt {attempt} timed out after {timeout_per_attempt}s")
-            if attempt < max_attempts:
-                wait_time = min(2 ** attempt, 5)  # Exponential backoff, max 5s
-                print(f"Waiting {wait_time}s before retry...")
-                await asyncio.sleep(wait_time)
+        except discord.ClientException as e:
+            # "Already connected to a voice channel" etc.
+            print(f"Attempt {attempt} ClientException: {e}")
+            await cleanup_stale_voice_client(guild)
         except Exception as e:
             print(f"Attempt {attempt} failed: {type(e).__name__}: {str(e)}")
-            if attempt < max_attempts:
-                wait_time = min(2 ** attempt, 5)
-                print(f"Waiting {wait_time}s before retry...")
-                await asyncio.sleep(wait_time)
-            else:
-                raise
+
+        if attempt < max_attempts:
+            wait_time = min(2 ** attempt, 5)  # Exponential backoff, max 5s
+            print(f"Waiting {wait_time}s before retry...")
+            await asyncio.sleep(wait_time)
 
     raise Exception(f"Failed to connect after {max_attempts} attempts")
 
@@ -426,23 +440,17 @@ async def join(interaction: discord.Interaction):
         print(f"Opus loaded: {discord.opus.is_loaded()}")
         print(f"Voice channel: {voice_channel.name} (ID: {voice_channel.id})")
 
-        # Use retry logic with shorter timeouts to fail fast
-        vc = await connect_with_retry(voice_channel, max_attempts=3, timeout_per_attempt=10.0)
+        # Use retry logic with stale client cleanup
+        vc = await connect_with_retry(voice_channel, interaction.guild, max_attempts=3, timeout_per_attempt=15.0)
 
         # Set current channel only after successful connection
         currentChannel = interaction.channel_id
-
-        # Verify guild voice client
-        guild_vc = interaction.guild.voice_client
-        if not guild_vc or not guild_vc.is_connected():
-            raise Exception("Guild voice client not available after connection")
 
         print(f"Successfully connected to voice channel: {voice_channel.name}")
         print(f"Voice client status: connected={vc.is_connected()}, latency={vc.latency:.2f}ms")
         await interaction.followup.send(f'✓ ボイスチャンネル「{voice_channel.name}」に接続しました')
 
     except asyncio.TimeoutError as e:
-        connecting_channels.discard(interaction.channel_id)
         currentChannel = None
         error_msg = "ボイス接続がタイムアウトしました"
         print(f"ERROR: {error_msg}")
@@ -451,13 +459,15 @@ async def join(interaction: discord.Interaction):
         await interaction.followup.send(f"✗ {error_msg}\n\nネットワーク設定を確認してください。\nKubernetes環境の場合、UDPポートが開放されているか確認してください。")
 
     except Exception as e:
-        connecting_channels.discard(interaction.channel_id)
         currentChannel = None
         error_msg = f"{type(e).__name__}: {str(e)}"
         print(f"ERROR: Failed to connect - {error_msg}")
         import traceback
         traceback.print_exc()
         await interaction.followup.send(f"✗ 接続に失敗しました\n```{error_msg}```\n\nKubernetes環境の場合:\n- UDPポート(50000-65535)が開放されているか確認\n- 外部ネットワークへのアクセスが許可されているか確認")
+
+    finally:
+        connecting_channels.discard(interaction.channel_id)
 
 
 @tree.command(name="dc", description="ボイスチャンネルから退出するよ")
