@@ -4,8 +4,6 @@ from discord.ext import commands
 import os
 import re
 import subprocess
-import time
-from threading import Timer
 from collections import defaultdict, deque
 import asyncio
 import uuid
@@ -111,10 +109,6 @@ def play(voice_client: discord.VoiceClient, queue: deque):
         play(voice_client, queue)
 
 
-def current_milli_time() -> int:
-    return round(time.time() * 1000)
-
-
 async def addDict(arg1: str, arg2: str):
     global dictMsg
     msg = dictMsg.content + '\n' + arg1 + ',' + arg2
@@ -213,49 +207,6 @@ async def jtalk(t) -> str:
             active_processes.discard(c)
 
 
-def get_voice_client(channel_id: int) -> discord.VoiceClient | None:
-    for client in bot.voice_clients:
-        if client.channel and client.channel.id == channel_id:
-            return client
-    else:
-        return None
-
-
-async def check_voice_client_health(voice_client: discord.VoiceClient) -> bool:
-    """Check if voice client is healthy and can play audio"""
-    try:
-        if not voice_client or not voice_client.is_connected():
-            return False
-        # Test if the voice client is responsive
-        return True
-    except Exception as e:
-        print(f"Voice client health check failed: {e}")
-        return False
-
-
-async def ensure_voice_connection(guild: discord.Guild, channel_id: int) -> discord.VoiceClient | None:
-    """Ensure we have a healthy voice connection"""
-    voice_client = get_voice_client(channel_id)
-    
-    if voice_client and await check_voice_client_health(voice_client):
-        return voice_client
-    
-    # Reconnect if connection is unhealthy
-    if voice_client:
-        try:
-            await voice_client.disconnect()
-        except:
-            pass
-    
-    try:
-        channel = bot.get_channel(channel_id)
-        if channel:
-            return await channel.connect()
-    except Exception as e:
-        print(f"Failed to reconnect to voice channel: {e}")
-        return None
-
-
 async def text_check(text: str, user_name: str) -> tuple[str, str]:
     print(text)
     if len(text) > 150:
@@ -297,9 +248,8 @@ tree = bot.tree
 # client = discord.Client(intents=discord.Intents.all())
 # tree = discord.app_commands.CommandTree(client)
 
-voice = None
-volume = None
-currentChannel = None
+volume_dict = defaultdict(lambda: 0.5)
+currentChannel = {}  # guild_id -> text_channel_id
 
 url = re.compile('^http')
 mention = re.compile('<@[^>]*>')
@@ -437,7 +387,6 @@ async def join(interaction: discord.Interaction):
     await interaction.followup.send(f'ボイスチャンネル「{voice_channel.name}」に接続を試みています...')
 
     try:
-        global currentChannel
         print(f"Opus loaded: {discord.opus.is_loaded()}")
         print(f"Voice channel: {voice_channel.name} (ID: {voice_channel.id})")
 
@@ -445,14 +394,14 @@ async def join(interaction: discord.Interaction):
         vc = await connect_with_retry(voice_channel, interaction.guild, max_attempts=3, timeout_per_attempt=15.0)
 
         # Set current channel only after successful connection
-        currentChannel = interaction.channel_id
+        currentChannel[interaction.guild.id] = interaction.channel_id
 
         print(f"Successfully connected to voice channel: {voice_channel.name}")
         print(f"Voice client status: connected={vc.is_connected()}, latency={vc.latency:.2f}ms")
         await interaction.followup.send(f'✓ ボイスチャンネル「{voice_channel.name}」に接続しました')
 
     except asyncio.TimeoutError as e:
-        currentChannel = None
+        currentChannel.pop(interaction.guild.id, None)
         # Clean up any stale voice client left from failed attempts
         await cleanup_stale_voice_client(interaction.guild)
         error_msg = "ボイス接続がタイムアウトしました"
@@ -462,7 +411,7 @@ async def join(interaction: discord.Interaction):
         await interaction.followup.send(f"✗ {error_msg}\n\nネットワーク設定を確認してください。\nKubernetes環境の場合、UDPポートが開放されているか確認してください。")
 
     except Exception as e:
-        currentChannel = None
+        currentChannel.pop(interaction.guild.id, None)
         # Clean up any stale voice client left from failed attempts
         await cleanup_stale_voice_client(interaction.guild)
         error_msg = f"{type(e).__name__}: {str(e)}"
@@ -478,12 +427,10 @@ async def join(interaction: discord.Interaction):
 @tree.command(name="dc", description="ボイスチャンネルから退出するよ")
 async def dc(interaction: discord.Interaction):
     await interaction.response.defer()
-    client: discord.VoiceClient | None = get_voice_client(
-        interaction.channel_id)
+    client = interaction.guild.voice_client
 
     if client:
-        global currentChannel
-        currentChannel = None
+        currentChannel.pop(interaction.guild.id, None)
         # キューをクリアして蓄積されたメッセージを削除
         if interaction.guild.id in queue_dict:
             queue_dict[interaction.guild.id].clear()
@@ -518,26 +465,29 @@ async def status_cmd(interaction: discord.Interaction):
 
 @tree.command(name="volume", description="音量を調整するよ")
 async def vol(interaction: discord.Interaction, control: str):
-    global volume
-
+    guild_id = interaction.guild.id
     if control == "up":
-        volume += 0.1
-        await interaction.response.send_message(f"音量を上げました\n現在の音量:{volume}")
+        volume_dict[guild_id] = round(min(volume_dict[guild_id] + 0.1, 2.0), 1)
+        await interaction.response.send_message(f"音量を上げました\n現在の音量:{volume_dict[guild_id]:.1f}")
     elif control == "down":
-        volume -= 0.1
-        await interaction.response.send_message(f"音量を下げました\n現在の音量:{volume}")
+        volume_dict[guild_id] = round(max(volume_dict[guild_id] - 0.1, 0.0), 1)
+        await interaction.response.send_message(f"音量を下げました\n現在の音量:{volume_dict[guild_id]:.1f}")
     else:
-        await interaction.response.send_message(f"up もしくは down を入力してください\n現在の音量:{volume}")
+        await interaction.response.send_message(f"up もしくは down を入力してください\n現在の音量:{volume_dict[guild_id]:.1f}")
 
 
 @tree.command(name="bye", description="クライアント終了、仕様上動くかわかんない")
 async def bye(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("管理者権限が必要です")
     await interaction.response.send_message("クライアントを終了します")
     await bot.close()
 
 
 @tree.command(name="kill", description="ボットプロセスを強制終了します")
 async def kill(interaction: discord.Interaction):
+    if not interaction.user.guild_permissions.administrator:
+        return await interaction.response.send_message("管理者権限が必要です")
     await interaction.response.send_message("ボットプロセスを強制終了します。")
     cleanup_all()
     os._exit(1)
@@ -582,12 +532,10 @@ async def rename(interaction: discord.Interaction, name: str=None):
 @bot.event
 async def on_message(message: discord.Message):
     # テキストチャンネルにメッセージが送信されたときの処理
-    global volume
 
     # botの排除
     if message.author.bot:
         return await bot.process_commands(message)
-    volume = 0.5
 
     # Use guild's voice client directly instead of looking up by text channel ID
     voice_client = message.guild.voice_client
@@ -596,7 +544,7 @@ async def on_message(message: discord.Message):
         return await bot.process_commands(message)
 
     # Check if the bot is in a voice channel and the message is from the linked text channel
-    if currentChannel != message.channel.id:
+    if currentChannel.get(message.guild.id) != message.channel.id:
         return await bot.process_commands(message)
 
     text = message.content
@@ -613,23 +561,23 @@ async def on_message(message: discord.Message):
         return await message.channel.send(f"読み上げエラー: {e}")
 
     try:
-        enqueue(voice_client, message.guild,
-                discord.FFmpegPCMAudio(filename), filename)
+        guild_vol = volume_dict[message.guild.id]
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename), volume=guild_vol)
+        enqueue(voice_client, message.guild, source, filename)
     except Exception as e:
         print(f"Audio enqueue error: {e}")
         # Clean up file if enqueue fails
         if os.path.exists(filename):
             os.remove(filename)
         return await message.channel.send("音声の再生に失敗しました")
-    
+
     # コマンド側へメッセージ内容を渡す
     await bot.process_commands(message)
 
 @bot.event
 async def on_voice_state_update(member: discord.Member, before:discord.VoiceState, after:discord.VoiceState):
     # Chatに接続中でないなら処理しない
-    global currentChannel
-    if currentChannel is None:
+    if member.guild.id not in currentChannel:
         return
     if member.id in userNicknameDict:
         username=userNicknameDict[member.id]
@@ -638,27 +586,33 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
     if not before.channel and after.channel:
         try:
             filename = await jtalk(username +"さんこんにちは！")
-            enqueue(member.guild.voice_client, member.guild,
-                    discord.FFmpegPCMAudio(filename), filename)
+            guild_vol = volume_dict[member.guild.id]
+            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename), volume=guild_vol)
+            enqueue(member.guild.voice_client, member.guild, source, filename)
         except Exception as e:
             print(f"Failed to play greeting: {e}")
     if before.channel and not after.channel:
         try:
             filename = await jtalk(username + "さんが退出しました")
-            enqueue(member.guild.voice_client, member.guild,
-                    discord.FFmpegPCMAudio(filename), filename)
+            guild_vol = volume_dict[member.guild.id]
+            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename), volume=guild_vol)
+            enqueue(member.guild.voice_client, member.guild, source, filename)
         except Exception as e:
             print(f"Failed to play farewell: {e}")
-    allbot = True    
+    # before.channelがNoneの場合（初めてVCに入った場合）はスキップ
+    if not before.channel:
+        return
+    allbot = True
     selfcheck = False
     for mem in before.channel.members:
         if mem.id == bot.user.id:
             selfcheck = True
-        if  not mem.bot:
+        if not mem.bot:
             allbot = False
-    if before.channel and allbot and selfcheck:
+    if allbot and selfcheck:
         client = member.guild.voice_client
         if client:
+            currentChannel.pop(member.guild.id, None)
             # 自動退出時もキューをクリア
             if member.guild.id in queue_dict:
                 queue_dict[member.guild.id].clear()
