@@ -356,7 +356,7 @@ async def cleanup_stale_voice_client(guild: discord.Guild):
         except Exception as e:
             print(f"Error during stale voice client cleanup: {e}")
         # Give Discord a moment to process the disconnect
-        await asyncio.sleep(0.5)
+        await asyncio.sleep(1.0)
 
 
 async def connect_with_retry(voice_channel, guild, max_attempts=3, timeout_per_attempt=15.0):
@@ -390,6 +390,7 @@ async def connect_with_retry(voice_channel, guild, max_attempts=3, timeout_per_a
 
         except asyncio.TimeoutError:
             print(f"Attempt {attempt} timed out after {timeout_per_attempt}s")
+            await cleanup_stale_voice_client(guild)
         except discord.ClientException as e:
             # "Already connected to a voice channel" etc.
             print(f"Attempt {attempt} ClientException: {e}")
@@ -452,6 +453,8 @@ async def join(interaction: discord.Interaction):
 
     except asyncio.TimeoutError as e:
         currentChannel = None
+        # Clean up any stale voice client left from failed attempts
+        await cleanup_stale_voice_client(interaction.guild)
         error_msg = "ボイス接続がタイムアウトしました"
         print(f"ERROR: {error_msg}")
         import traceback
@@ -460,6 +463,8 @@ async def join(interaction: discord.Interaction):
 
     except Exception as e:
         currentChannel = None
+        # Clean up any stale voice client left from failed attempts
+        await cleanup_stale_voice_client(interaction.guild)
         error_msg = f"{type(e).__name__}: {str(e)}"
         print(f"ERROR: Failed to connect - {error_msg}")
         import traceback
