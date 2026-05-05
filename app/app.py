@@ -207,7 +207,7 @@ async def jtalk(t) -> str:
             active_processes.discard(c)
 
 
-async def text_check(text: str, user_name: str) -> tuple[str, str]:
+async def text_check(text: str, user_name: str) -> tuple[str, str] | None:
     print(text)
     if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
@@ -220,10 +220,17 @@ async def text_check(text: str, user_name: str) -> tuple[str, str]:
     text = text.replace('\n', '。')
     text = re.sub('http.*', '', text)
     text = replaceDict(text)
-    text = user_name + text
+    text = emoji_pattern.sub('', text)
+    user_name_clean = emoji_pattern.sub('', user_name)
+
+    # 合成可能な文字が残ってへんかったら静かにスキップ
+    if not (user_name_clean + text).strip():
+        return None
+
+    text = user_name_clean + text
     if len(text) > 150:
         raise Exception("文字数が長すぎるよ")
-    
+
     try:
         filename = await jtalk(text)
         if os.path.getsize(filename) > 10000000:
@@ -254,6 +261,17 @@ currentChannel = {}  # guild_id -> text_channel_id
 url = re.compile('^http')
 mention = re.compile('<@[^>]*>')
 stamp = re.compile('<:([^:]*):.*>')
+
+# OpenJTalk が音素を持たへん文字（絵文字・記号類）を取り除くためのパターン
+emoji_pattern = re.compile(
+    "["
+    "\U0001F000-\U0001FFFF"
+    "\U00002600-\U000027BF"
+    "\U0000FE00-\U0000FE0F"
+    "\U0000200D"
+    "]+",
+    flags=re.UNICODE,
+)
 
 
 @bot.event
@@ -555,10 +573,20 @@ async def on_message(message: discord.Message):
         user_name=message.author.display_name
 
     try:
-        text, filename = await text_check(text, user_name)
+        result = await text_check(text, user_name)
     except Exception as e:
         print(f"Text processing error: {e}")
+        error_str = str(e)
+        # 合成系のエラー（音素なし・記号のみ等）はユーザーが対処できへんので、ログだけ残してチャットには出さん
+        if "OpenJTalk" in error_str or "waveform" in error_str or "synthesized" in error_str or "phoneme" in error_str:
+            return await bot.process_commands(message)
         return await message.channel.send(f"読み上げエラー: {e}")
+
+    # 読み上げ内容が空（URL・絵文字のみ等）の時はエラー出さずにスキップ
+    if result is None:
+        return await bot.process_commands(message)
+
+    text, filename = result
 
     try:
         guild_vol = volume_dict[message.guild.id]
