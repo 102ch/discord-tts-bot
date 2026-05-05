@@ -24,7 +24,6 @@ RUN apt-get update && apt-get install -y \
     wget \
     unzip \
     curl \
-    software-properties-common \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
@@ -37,15 +36,11 @@ RUN wget http://sourceforge.net/projects/mmdagent/files/MMDAgent_Example/MMDAgen
     && cp -r MMDAgent_Example-1.7/Voice/mei/ /usr/share/hts-voice/ \
     && rm -rf MMDAgent_Example-1.7.zip MMDAgent_Example-1.7
 
-# Install Python 3.12
-RUN add-apt-repository ppa:deadsnakes/ppa \
-    && apt-get update \
-    && apt-get install -y python3.12 python3.12-venv python3.12-dev \
-    && rm -rf /var/lib/apt/lists/*
-
-# Install uv using official installer
+# Install uv using official installer; uv will install Python 3.12 itself via
+# python-build-standalone, avoiding a hard dependency on deadsnakes PPA
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
+ENV UV_PYTHON_DOWNLOADS=automatic
 
 # Create working directory
 RUN mkdir -p /root/src
