@@ -223,8 +223,9 @@ async def text_check(text: str, user_name: str) -> tuple[str, str] | None:
     text = emoji_pattern.sub('', text)
     user_name_clean = emoji_pattern.sub('', user_name)
 
-    # 合成可能な文字が残ってへんかったら静かにスキップ
-    if not (user_name_clean + text).strip():
+    # 本文が空（画像のみ・URLのみ・絵文字のみ等）やったら静かにスキップ
+    # ユーザー名だけ読み上げても意味あらへんし、OpenJTalk が落ちる原因にもなる
+    if not text.strip():
         return None
 
     text = user_name_clean + text
