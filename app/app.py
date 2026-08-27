@@ -43,6 +43,10 @@ except ValueError as e:
 
 dictMsg = None
 
+# 呼び方を保存するメッセージ（辞書チャンネル内）。1行目がこのヘッダで始まる
+NICK_HEADER = '== 呼び方 =='
+nickMsg = None
+
 userNicknameDict:dict[int,str] = dict ()
 
 def enqueue(voice_client: discord.VoiceClient, guild: discord.Guild, source, filename: str):
@@ -141,6 +145,36 @@ async def removeDict(num: int) -> bool:
             output.append(line)
     dictMsg = await dictMsg.edit(content='\n'.join(output))
     return True
+
+
+def loadNicknames():
+    """呼び方保存メッセージの内容を userNicknameDict に読み込む"""
+    userNicknameDict.clear()
+    if nickMsg is None:
+        return
+    for line in nickMsg.content.splitlines()[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        user_id, _, name = line.partition(',')
+        try:
+            userNicknameDict[int(user_id)] = name
+        except ValueError:
+            print(f"Skipping malformed nickname line: {line}")
+    print(f"Loaded {len(userNicknameDict)} nicknames")
+
+
+async def saveNicknames():
+    """userNicknameDict の内容を保存メッセージに書き戻す"""
+    global nickMsg
+    if nickMsg is None:
+        print("Nickname message is not available. Skipping save.")
+        return
+    lines = [NICK_HEADER] + [f"{uid},{name}" for uid, name in userNicknameDict.items()]
+    content = '\n'.join(lines)
+    if len(content) > 2000:
+        raise ValueError("呼び方の登録数が多すぎて保存できひんかった")
+    nickMsg = await nickMsg.edit(content=content)
 
 
 def replaceDict(text: str) -> str:
@@ -280,18 +314,30 @@ async def on_ready():
     # 起動時の処理
     print(f"Bot logged in as {bot.user} (ID: {bot.user.id})")
 
-    global dictMsg
+    global dictMsg, nickMsg
     try:
         channel = bot.get_channel(dictID)
         if channel is None:
             raise Exception(f"Dictionary channel with ID {dictID} not found. Please check DICT_CH_ID environment variable.")
         print(f"Found dictionary channel: {channel.name} (ID: {channel.id})")
 
-        async for message in channel.history(limit=1):
-            if message.author == bot.user:
+        async for message in channel.history(limit=100):
+            if message.author != bot.user:
+                continue
+            if message.content.startswith(NICK_HEADER):
+                if nickMsg is None:
+                    nickMsg = message
+            elif dictMsg is None:
                 dictMsg = message
-            else:
-                dictMsg = await channel.send('文字列,文字列')
+            if dictMsg is not None and nickMsg is not None:
+                break
+
+        if dictMsg is None:
+            dictMsg = await channel.send('文字列,文字列')
+        if nickMsg is None:
+            nickMsg = await channel.send(NICK_HEADER)
+
+        loadNicknames()
 
         await tree.sync()
         print('Bot is wake up. hi bro.')
@@ -545,7 +591,20 @@ async def rename(interaction: discord.Interaction, name: str=None):
             return await interaction.response.send_message(f"あなたの呼び方はまだ設定されてないよ")
     if len(name) > 10:
         return await interaction.response.send_message("荒らしは許されませんよ♡\n呼び方は10文字儼にしてね")
+    if ',' in name or '\n' in name:
+        return await interaction.response.send_message("呼び方にカンマと改行は使われへんよ")
+    previous = userNicknameDict.get(interaction.user.id)
     userNicknameDict[interaction.user.id] = name
+    try:
+        await saveNicknames()
+    except Exception as e:
+        # 保存に失敗したら元に戻す（再起動で消えるのを黙って許さんため）
+        if previous is None:
+            userNicknameDict.pop(interaction.user.id, None)
+        else:
+            userNicknameDict[interaction.user.id] = previous
+        print(f"Failed to save nicknames: {e}")
+        return await interaction.response.send_message(f"呼び方の保存に失敗したよ: {e}")
     await interaction.response.send_message(f"あなたの呼び方を{name}に変えたよ")
 
 @bot.event
