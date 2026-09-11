@@ -650,7 +650,7 @@ async def on_message(message: discord.Message):
 
     try:
         guild_vol = volume_dict[message.guild.id]
-        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename), volume=guild_vol)
+        source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename, before_options='-loglevel error'), volume=guild_vol)
         enqueue(voice_client, message.guild, source, filename)
     except Exception as e:
         print(f"Audio enqueue error: {e}")
@@ -675,7 +675,7 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
         try:
             filename = await jtalk(username +"さんこんにちは！")
             guild_vol = volume_dict[member.guild.id]
-            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename), volume=guild_vol)
+            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename, before_options='-loglevel error'), volume=guild_vol)
             enqueue(member.guild.voice_client, member.guild, source, filename)
         except Exception as e:
             print(f"Failed to play greeting: {e}")
@@ -683,7 +683,7 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
         try:
             filename = await jtalk(username + "さんが退出しました")
             guild_vol = volume_dict[member.guild.id]
-            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename), volume=guild_vol)
+            source = discord.PCMVolumeTransformer(discord.FFmpegPCMAudio(filename, before_options='-loglevel error'), volume=guild_vol)
             enqueue(member.guild.voice_client, member.guild, source, filename)
         except Exception as e:
             print(f"Failed to play farewell: {e}")
@@ -709,7 +709,7 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
 
 async def cleanup_voice_clients():
     """Clean up all voice client connections"""
-    for voice_client in bot.voice_clients:
+    for voice_client in list(bot.voice_clients):
         try:
             if voice_client.is_connected():
                 print(f"Disconnecting voice client from channel: {voice_client.channel.name if voice_client.channel else 'Unknown'}")
@@ -735,53 +735,48 @@ def cleanup_processes():
                     pass
         active_processes.clear()
 
-def cleanup_all():
-    """Clean up everything before shutdown"""
-    print("Starting cleanup_all()...")
-    # Clean up voice clients (run in the event loop if possible)
-    try:
-        if bot.loop and bot.loop.is_running():
-            print("Event loop is running, scheduling cleanup in event loop...")
-            asyncio.run_coroutine_threadsafe(cleanup_voice_clients(), bot.loop).result(timeout=5)
-        elif bot.loop:
-            print("Event loop exists but not running, running cleanup directly...")
-            bot.loop.run_until_complete(cleanup_voice_clients())
-        else:
-            print("No event loop available, skipping voice client cleanup")
-    except Exception as e:
-        print(f"Error during voice client cleanup: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
-
-    # Clean up processes
-    print("Cleaning up OpenJTalk processes...")
-    cleanup_processes()
-    print("Cleanup complete")
-
-
-# Register cleanup handlers
-atexit.register(cleanup_all)
-signal.signal(signal.SIGTERM, lambda signum, frame: cleanup_all())
-signal.signal(signal.SIGINT, lambda signum, frame: cleanup_all())
+# Async voice cleanup runs in main(); atexit only handles subprocesses.
+atexit.register(cleanup_processes)
 
 
 async def main():
-    # start the client
+    loop = asyncio.get_running_loop()
+    main_task = asyncio.current_task()
+    shutdown_requested = False
+
+    def request_shutdown():
+        nonlocal shutdown_requested
+        # Repeated signals must not interrupt cleanup already in progress.
+        if not shutdown_requested:
+            shutdown_requested = True
+            main_task.cancel()
+
+    shutdown_signals = (signal.SIGTERM, signal.SIGINT)
+    for sig in shutdown_signals:
+        loop.add_signal_handler(sig, request_shutdown)
+
     try:
         print("Starting Discord bot...")
         print(f"Client ID: {client_id[:10]}..." if len(client_id) > 10 else "Client ID: [too short]")
         print(f"Application ID: {application_id}")
         print(f"Dictionary Channel ID: {dictID}")
         async with bot:
-            await bot.start(client_id)
+            try:
+                await bot.start(client_id)
+            finally:
+                await cleanup_voice_clients()
+    except asyncio.CancelledError:
+        if not shutdown_requested:
+            raise
     except Exception as e:
         print(f"Bot startup failed: {e}")
         import traceback
         traceback.print_exc()
         raise
     finally:
-        await cleanup_voice_clients()
         cleanup_processes()
+        for sig in shutdown_signals:
+            loop.remove_signal_handler(sig)
 
 
 if __name__ == "__main__":
