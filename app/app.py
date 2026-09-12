@@ -829,5 +829,7 @@ async def main():
 if __name__ == "__main__":
     # bot.start() does not configure logging like bot.run() does.
     discord.utils.setup_logging(level=logging.INFO, root=True)
-    logger.info("Starting with discord.py %s", discord.__version__)
+    # Voice state transitions and reconnect details; gateway DEBUG logs raw payloads.
+    logging.getLogger("discord.voice_state").setLevel(logging.DEBUG)
+    logger.info("Starting with discord.py %s (voice_state=DEBUG)", discord.__version__)
     asyncio.run(main())
