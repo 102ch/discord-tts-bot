@@ -10,6 +10,9 @@ import uuid
 import atexit
 import signal
 import threading
+import logging
+
+logger = logging.getLogger(__name__)
 
 # from dotenv import load_dotenv
 # load_dotenv()
@@ -27,6 +30,8 @@ else:
 
 queue_dict = defaultdict(deque)
 connecting_channels = set()
+voice_operations = set()
+synthesis_lock = asyncio.Lock()
 active_processes = set()
 cleanup_lock = threading.Lock()
 
@@ -207,6 +212,23 @@ async def replaceUserName(text: str) -> str:
 
 
 async def jtalk(t) -> str:
+    # Serialize synthesis without blocking Discord heartbeats or voice events.
+    async with synthesis_lock:
+        task = asyncio.create_task(asyncio.to_thread(synthesize, t))
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            # A worker thread cannot be cancelled. Reap it and its unused output.
+            try:
+                filename = await task
+                if os.path.exists(filename):
+                    os.remove(filename)
+            except Exception:
+                logger.exception("Synthesis failed during cancellation")
+            raise
+
+
+def synthesize(t) -> str:
     open_jtalk = ['open_jtalk']
     mech = ['-x', '/var/lib/mecab/dic/open-jtalk/naist-jdic']
     htsvoice = ['-m', '/usr/share/hts-voice/mei/mei_normal.htsvoice']
@@ -218,6 +240,7 @@ async def jtalk(t) -> str:
     outwav = ['-ow', filename]
     cmd = open_jtalk + mech + htsvoice + pitch + speed + outwav
     
+    c = None
     try:
         c = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         with cleanup_lock:
@@ -231,6 +254,9 @@ async def jtalk(t) -> str:
         return filename
     except subprocess.TimeoutExpired:
         c.kill()
+        c.communicate()
+        if os.path.exists(filename):
+            os.remove(filename)
         raise Exception("OpenJTalk timeout")
     except Exception as e:
         if os.path.exists(filename):
@@ -433,76 +459,89 @@ async def join(interaction: discord.Interaction):
     voice_channel = interaction.user.voice.channel
     print(f"join: User is in voice channel {voice_channel.name} (ID: {voice_channel.id})")
 
-    # Check if already connected to a voice channel in this guild
-    existing_vc = interaction.guild.voice_client
-    if existing_vc:
-        if existing_vc.channel.id == voice_channel.id:
-            await interaction.followup.send(f'既にボイスチャンネル「{voice_channel.name}」に参加しています')
-            return
-        else:
-            # Disconnect from current channel first
-            print(f"Disconnecting from existing voice channel: {existing_vc.channel.name}")
-            try:
-                await existing_vc.disconnect(force=True)
-                await asyncio.sleep(1)
-            except Exception as e:
-                print(f"Error disconnecting from existing channel: {e}")
-
-    connecting_channels.add(interaction.channel_id)
-    await interaction.followup.send(f'ボイスチャンネル「{voice_channel.name}」に接続を試みています...')
-
+    if interaction.guild.id in voice_operations:
+        await interaction.followup.send('このサーバーの音声接続を処理中です。少し待ってください')
+        return
+    voice_operations.add(interaction.guild.id)
     try:
-        print(f"Opus loaded: {discord.opus.is_loaded()}")
-        print(f"Voice channel: {voice_channel.name} (ID: {voice_channel.id})")
+        # Check if already connected to a voice channel in this guild
+        existing_vc = interaction.guild.voice_client
+        if existing_vc:
+            if existing_vc.is_connected() and existing_vc.channel.id == voice_channel.id:
+                await interaction.followup.send(f'既にボイスチャンネル「{voice_channel.name}」に参加しています')
+                return
+            else:
+                # Disconnect from current channel first
+                print(f"Disconnecting from existing voice channel: {existing_vc.channel.name}")
+                try:
+                    await existing_vc.disconnect(force=True)
+                    await asyncio.sleep(1)
+                except Exception as e:
+                    print(f"Error disconnecting from existing channel: {e}")
 
-        # Use retry logic with stale client cleanup
-        vc = await connect_with_retry(voice_channel, interaction.guild, max_attempts=3, timeout_per_attempt=15.0)
+        connecting_channels.add(interaction.channel_id)
+        try:
+            await interaction.followup.send(f'ボイスチャンネル「{voice_channel.name}」に接続を試みています...')
+            print(f"Opus loaded: {discord.opus.is_loaded()}")
+            print(f"Voice channel: {voice_channel.name} (ID: {voice_channel.id})")
 
-        # Set current channel only after successful connection
-        currentChannel[interaction.guild.id] = interaction.channel_id
+            # Use retry logic with stale client cleanup
+            vc = await connect_with_retry(voice_channel, interaction.guild, max_attempts=3, timeout_per_attempt=15.0)
 
-        print(f"Successfully connected to voice channel: {voice_channel.name}")
-        print(f"Voice client status: connected={vc.is_connected()}, latency={vc.latency:.2f}ms")
-        await interaction.followup.send(f'✓ ボイスチャンネル「{voice_channel.name}」に接続しました')
+            # Set current channel only after successful connection
+            currentChannel[interaction.guild.id] = interaction.channel_id
 
-    except asyncio.TimeoutError as e:
-        currentChannel.pop(interaction.guild.id, None)
-        # Clean up any stale voice client left from failed attempts
-        await cleanup_stale_voice_client(interaction.guild)
-        error_msg = "ボイス接続がタイムアウトしました"
-        print(f"ERROR: {error_msg}")
-        import traceback
-        traceback.print_exc()
-        await interaction.followup.send(f"✗ {error_msg}\n\nネットワーク設定を確認してください。\nKubernetes環境の場合、UDPポートが開放されているか確認してください。")
+            print(f"Successfully connected to voice channel: {voice_channel.name}")
+            print(f"Voice client status: connected={vc.is_connected()}, latency={vc.latency:.2f}ms")
+            await interaction.followup.send(f'✓ ボイスチャンネル「{voice_channel.name}」に接続しました')
 
-    except Exception as e:
-        currentChannel.pop(interaction.guild.id, None)
-        # Clean up any stale voice client left from failed attempts
-        await cleanup_stale_voice_client(interaction.guild)
-        error_msg = f"{type(e).__name__}: {str(e)}"
-        print(f"ERROR: Failed to connect - {error_msg}")
-        import traceback
-        traceback.print_exc()
-        await interaction.followup.send(f"✗ 接続に失敗しました\n```{error_msg}```\n\nKubernetes環境の場合:\n- UDPポート(50000-65535)が開放されているか確認\n- 外部ネットワークへのアクセスが許可されているか確認")
+        except asyncio.TimeoutError as e:
+            currentChannel.pop(interaction.guild.id, None)
+            # Clean up any stale voice client left from failed attempts
+            await cleanup_stale_voice_client(interaction.guild)
+            error_msg = "ボイス接続がタイムアウトしました"
+            print(f"ERROR: {error_msg}")
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"✗ {error_msg}\n\nしばらく待って /join を試してください。")
 
+        except Exception as e:
+            currentChannel.pop(interaction.guild.id, None)
+            # Clean up any stale voice client left from failed attempts
+            await cleanup_stale_voice_client(interaction.guild)
+            error_msg = f"{type(e).__name__}: {str(e)}"
+            print(f"ERROR: Failed to connect - {error_msg}")
+            import traceback
+            traceback.print_exc()
+            await interaction.followup.send(f"✗ 接続に失敗しました\n```{error_msg}```\n\n音声接続を確立できませんでした。しばらく待って /join を試してください。")
+
+        finally:
+            connecting_channels.discard(interaction.channel_id)
     finally:
-        connecting_channels.discard(interaction.channel_id)
+        voice_operations.discard(interaction.guild.id)
 
 
 @tree.command(name="dc", description="ボイスチャンネルから退出するよ")
 async def dc(interaction: discord.Interaction):
     await interaction.response.defer()
-    client = interaction.guild.voice_client
+    if interaction.guild.id in voice_operations:
+        await interaction.followup.send('このサーバーの音声接続を処理中です。少し待ってください')
+        return
+    voice_operations.add(interaction.guild.id)
+    try:
+        client = interaction.guild.voice_client
 
-    if client:
-        currentChannel.pop(interaction.guild.id, None)
-        # キューをクリアして蓄積されたメッセージを削除
-        if interaction.guild.id in queue_dict:
-            queue_dict[interaction.guild.id].clear()
-        await client.disconnect()
-        await interaction.followup.send('ボイスチャンネルからログアウトしました')
-    else:
-        await interaction.followup.send('ボイスチャンネルに参加していません')
+        if client:
+            currentChannel.pop(interaction.guild.id, None)
+            # キューをクリアして蓄積されたメッセージを削除
+            if interaction.guild.id in queue_dict:
+                queue_dict[interaction.guild.id].clear()
+            await client.disconnect()
+            await interaction.followup.send('ボイスチャンネルからログアウトしました')
+        else:
+            await interaction.followup.send('ボイスチャンネルに参加していません')
+    finally:
+        voice_operations.discard(interaction.guild.id)
 
 
 @tree.command(name="status", description="現在のステータスを確認するよ")
@@ -664,6 +703,13 @@ async def on_message(message: discord.Message):
 
 @bot.event
 async def on_voice_state_update(member: discord.Member, before:discord.VoiceState, after:discord.VoiceState):
+    if member.id == bot.user.id:
+        logger.info("Bot voice state: guild=%s before=%s after=%s operation_pending=%s",
+                    member.guild.id, getattr(before.channel, 'id', None),
+                    getattr(after.channel, 'id', None), member.guild.id in voice_operations)
+        return
+    if member.guild.id in voice_operations:
+        return
     # Chatに接続中でないなら処理しない
     if member.guild.id not in currentChannel:
         return
@@ -699,11 +745,12 @@ async def on_voice_state_update(member: discord.Member, before:discord.VoiceStat
             allbot = False
     if allbot and selfcheck:
         client = member.guild.voice_client
-        if client:
+        if client and client.channel == before.channel and member.guild.id not in voice_operations:
             currentChannel.pop(member.guild.id, None)
             # 自動退出時もキューをクリア
             if member.guild.id in queue_dict:
                 queue_dict[member.guild.id].clear()
+            logger.info("Leaving empty voice channel: guild=%s channel=%s", member.guild.id, before.channel.id)
             await client.disconnect()
             await before.channel.send('ボイスチャンネルからログアウトしました')
 
@@ -780,4 +827,7 @@ async def main():
 
 
 if __name__ == "__main__":
+    # bot.start() does not configure logging like bot.run() does.
+    discord.utils.setup_logging(level=logging.INFO, root=True)
+    logger.info("Starting with discord.py %s", discord.__version__)
     asyncio.run(main())
